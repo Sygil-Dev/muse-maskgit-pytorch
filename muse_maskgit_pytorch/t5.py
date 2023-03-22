@@ -24,25 +24,31 @@ T5_CONFIGS = {}
 # singleton globals
 
 
-def get_tokenizer(name):
-    tokenizer = T5Tokenizer.from_pretrained(name)
+def get_tokenizer(name, cache_path):
+    if cache_path is not None:
+        tokenizer = T5Tokenizer.from_pretrained(name, cache_dir=cache_path)
+    else:
+        tokenizer = T5Tokenizer.from_pretrained(name)
     return tokenizer
 
 
-def get_model(name):
-    model = T5EncoderModel.from_pretrained(name)
+def get_model(name, cache_path):
+    if cache_path is not None:
+        model = T5EncoderModel.from_pretrained(name, cache_dir=cache_path)
+    else:
+        model = T5EncoderModel.from_pretrained(name)
     return model
 
 
-def get_model_and_tokenizer(name):
+def get_model_and_tokenizer(name, cache_path):
     global T5_CONFIGS
 
     if name not in T5_CONFIGS:
         T5_CONFIGS[name] = dict()
     if "model" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["model"] = get_model(name)
+        T5_CONFIGS[name]["model"] = get_model(name, cache_path)
     if "tokenizer" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name)
+        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name, cache_path)
 
     return T5_CONFIGS[name]["model"], T5_CONFIGS[name]["tokenizer"]
 

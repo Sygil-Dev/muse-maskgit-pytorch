@@ -260,6 +260,10 @@ def parse_args():
         default=0.0,
         help="Optimizer weight_decay to use. Default: 0.0",
     )
+    parser.add_argument("--cache_path", type=str,
+                        default=None,
+                        help="The path to cache huggingface models",
+                        )
     # Parse the argument
     return parser.parse_args()
 
@@ -320,6 +324,7 @@ def main():
         heads=args.heads,  # attention heads,
         ff_mult=args.ff_mult,  # feedforward expansion factor
         t5_name=args.t5_name,  # name of your T5
+        cache_path=args.cache_path
     ).to(accelerator.device)
     transformer.t5.to(accelerator.device)
 
