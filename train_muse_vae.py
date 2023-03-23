@@ -19,7 +19,6 @@ from muse_maskgit_pytorch.dataset import (
 import argparse
 
 import torch.nn as nn
-import bitsandbytes as bnb
 from accelerate import init_empty_weights
 
 def parse_args():
@@ -312,7 +311,7 @@ def main():
         dataloader,
         validation_dataloader,
         accelerator,
-        current_step=current_step+1 if current_step != 0 else current_step,
+        current_step=current_step + 1 if current_step != 0 else current_step,
         num_train_steps=args.num_train_steps,
         lr=args.lr,
         lr_scheduler_type=args.lr_scheduler,
