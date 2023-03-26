@@ -32,7 +32,6 @@ setup(
         "pytorch-lightning<=1.7.7",
         "taming-transformers>=0.0.1",
         "transformers",
-        "torch>=1.6",
         "torchvision",
         "tqdm",
         "vector-quantize-pytorch>=0.10.14",
