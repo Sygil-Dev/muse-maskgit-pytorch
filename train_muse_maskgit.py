@@ -290,8 +290,19 @@ def main():
             save_path=args.dataset_save_path,
         )
     elif args.dataset_name:
-        dataset = load_dataset(args.dataset_name, streaming=args.streaming)["train"]
-        dataset = dataset.with_format("torch")
+        if args.cache_path:
+            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)["train"]
+        else:
+            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)["train"]
+        if args.streaming:
+            if dataset.info.dataset_size is None:
+                print("Dataset doesn't support streaming, disabling streaming")
+                args.streaming = False
+                if args.cache_path:
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                else:
+                    dataset = load_dataset(args.dataset_name)["train"]
+
     if args.vae_path and args.taming_model_path:
         raise Exception("You can't pass vae_path and taming args at the same time.")
 
@@ -369,6 +380,7 @@ def main():
         caption_column=args.caption_column,
         center_crop=not args.no_center_crop,
         flip=not args.no_flip,
+        stream=args.streaming
     )
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
         dataset, args.valid_frac, args.seed, args.batch_size

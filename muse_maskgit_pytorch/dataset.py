@@ -17,11 +17,12 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 class ImageDataset(Dataset):
     def __init__(
-        self, dataset, image_size, image_column="image", flip=True, center_crop=True
+        self, dataset, image_size, image_column="image", flip=True, center_crop=True, stream=False
     ):
         super().__init__()
         self.dataset = dataset
         self.image_column = image_column
+        self.stream = stream
         transform_list = [
             T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
             T.Resize(image_size),
@@ -34,7 +35,11 @@ class ImageDataset(Dataset):
         self.transform = T.Compose(transform_list)
 
     def __len__(self):
-        return len(self.dataset)
+        if not self.stream:
+            return len(self.dataset)
+        else:
+            print("Using streaming, fetching length...")
+            return int(self.dataset.info.dataset_size)
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
@@ -51,6 +56,7 @@ class ImageTextDataset(ImageDataset):
         caption_column=None,
         flip=True,
         center_crop=True,
+        stream=False
     ):
         super().__init__(
             dataset,
@@ -58,6 +64,7 @@ class ImageTextDataset(ImageDataset):
             image_column=image_column,
             flip=flip,
             center_crop=center_crop,
+            stream=stream
         )
         self.caption_column = caption_column
         self.tokenizer = tokenizer

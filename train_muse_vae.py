@@ -234,6 +234,10 @@ def parse_args():
         default=0.0,
         help="Optimizer weight_decay to use. Default: 0.0",
     )
+    parser.add_argument("--cache_path", type=str,
+                        default=None,
+                        help="The path to cache huggingface models",
+                        )
     # Parse the argument
     return parser.parse_args()
 
@@ -267,8 +271,19 @@ def main():
             save_path=args.dataset_save_path,
         )
     elif args.dataset_name:
-        dataset = load_dataset(args.dataset_name, streaming=args.streaming)["train"]
-        dataset = dataset.with_format("torch")
+        if args.cache_path:
+            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)["train"]
+        else:
+            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)["train"]
+        if args.streaming:
+            if dataset.info.dataset_size is None:
+                print("Dataset doesn't support streaming, disabling streaming")
+                args.streaming = False
+                if args.cache_path:
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                else:
+                    dataset = load_dataset(args.dataset_name)["train"]
+
 
     vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size)
     if args.taming_model_path:
@@ -301,6 +316,7 @@ def main():
         image_column=args.image_column,
         center_crop=not args.no_center_crop,
         flip=not args.no_flip,
+        stream=args.streaming
     )
     # dataloader
 
