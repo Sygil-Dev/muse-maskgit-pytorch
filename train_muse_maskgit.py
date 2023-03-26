@@ -14,6 +14,7 @@ from muse_maskgit_pytorch import (
 )
 from muse_maskgit_pytorch.dataset import (
     get_dataset_from_dataroot,
+    LocalTextImageDataset,
     ImageTextDataset,
     split_dataset_into_dataloaders,
 )
@@ -265,10 +266,16 @@ def parse_args():
         default=0.0,
         help="Optimizer weight_decay to use. Default: 0.0",
     )
-    parser.add_argument("--cache_path", type=str,
-                        default=None,
-                        help="The path to cache huggingface models",
-                        )
+    parser.add_argument(
+        "--cache_path", type=str,
+        default=None,
+        help="The path to cache huggingface models",
+    )
+    parser.add_argument(
+        "--skip_arrow",
+        action="store_true",
+        help="whether to skip converting the dataset to arrow, and to directly fetch data",
+    )
     # Parse the argument
     return parser.parse_args()
 
@@ -283,11 +290,14 @@ def main():
     )
 
     if args.train_data_dir:
-        dataset = get_dataset_from_dataroot(
-            args.train_data_dir,
-            image_column=args.image_column,
-            caption_column=args.caption_column,
-            save_path=args.dataset_save_path,
+        if args.skip_arrow:
+            pass
+        else:
+            dataset = get_dataset_from_dataroot(
+                args.train_data_dir,
+                image_column=args.image_column,
+                caption_column=args.caption_column,
+                save_path=args.dataset_save_path,
         )
     elif args.dataset_name:
         if args.cache_path:
@@ -372,16 +382,25 @@ def main():
         accelerator.print("No step found for the MaskGit model.")
         current_step = 0
 
-    dataset = ImageTextDataset(
-        dataset,
-        args.image_size,
-        transformer.tokenizer,
-        image_column=args.image_column,
-        caption_column=args.caption_column,
-        center_crop=not args.no_center_crop,
-        flip=not args.no_flip,
-        stream=args.streaming
-    )
+    if args.skip_arrow and args.train_data_dir:
+        dataset = LocalTextImageDataset(
+            args.train_data_dir,
+            args.image_size,
+            tokenizer=transformer.tokenizer,
+            flip=not args.no_flip,
+            center_crop=not args.no_center_crop
+        )
+    else:
+        dataset = ImageTextDataset(
+            dataset,
+            args.image_size,
+            transformer.tokenizer,
+            image_column=args.image_column,
+            caption_column=args.caption_column,
+            center_crop=not args.no_center_crop,
+            flip=not args.no_flip,
+            stream=args.streaming
+        )
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
         dataset, args.valid_frac, args.seed, args.batch_size
     )

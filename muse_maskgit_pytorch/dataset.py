@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 from PIL import ImageFile
+from PIL import Image as pImage
 from pathlib import Path
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
 import datasets
@@ -73,6 +74,82 @@ class ImageTextDataset(ImageDataset):
         image = self.dataset[index][self.image_column]
         descriptions = self.dataset[index][self.caption_column]
         if self.caption_column == None or descriptions == None:
+            text = ""
+        elif isinstance(descriptions, list):
+            if len(descriptions) == 0:
+                text = ""
+            else:
+                text = random.choice(descriptions)
+        else:
+            text = descriptions
+        # max length from the paper
+        encoded = self.tokenizer.batch_encode_plus(
+            [str(text)],
+            return_tensors="pt",
+            padding="max_length",
+            max_length=MAX_LENGTH,
+            truncation=True,
+        )
+
+        input_ids = encoded.input_ids
+        attn_mask = encoded.attention_mask
+        return self.transform(image), input_ids[0], attn_mask[0]
+
+
+class LocalTextImageDataset(Dataset):
+    def __init__(self,
+                 path,
+                 image_size,
+                 tokenizer,
+                 flip=True,
+                 center_crop=True
+                 ):
+        super().__init__()
+        self.tokenizer = tokenizer
+
+        print("Building dataset...")
+
+        extensions = ["jpg", "jpeg", "png", "webp"]
+        self.image_paths = []
+        self.caption_pair = []
+        self.images = []
+
+        for ext in extensions:
+            self.image_paths.extend(list(Path(path).rglob(f"*.{ext}")))
+
+        random.shuffle(self.image_paths)
+        for image_path in tqdm(self.image_paths):
+            # check image size and ignore images with 0 byte.
+            if os.path.getsize(image_path) == 0:
+                continue
+            caption_path = image_path.with_suffix(".txt")
+            if os.path.exists(str(caption_path)):
+                captions = caption_path.read_text(encoding="utf-8").split("\n")
+                captions = list(filter(lambda t: len(t) > 0, captions))
+            else:
+                captions = []
+            self.images.append(image_path)
+            self.caption_pair.append(captions)
+
+        transform_list = [
+            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
+            T.Resize(image_size),
+        ]
+        if flip:
+            transform_list.append(T.RandomHorizontalFlip())
+        if center_crop:
+            transform_list.append(T.CenterCrop(image_size))
+        transform_list.append(T.ToTensor())
+        self.transform = T.Compose(transform_list)
+
+    def __len__(self):
+        return len(self.caption_pair)
+
+    def __getitem__(self, index):
+        image = self.images[index]
+        image = pImage.open(image)
+        descriptions = self.caption_pair[index]
+        if descriptions is None:
             text = ""
         elif isinstance(descriptions, list):
             if len(descriptions) == 0:
