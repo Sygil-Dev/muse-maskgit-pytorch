@@ -291,6 +291,7 @@ def main():
         )
     elif args.dataset_name:
         dataset = load_dataset(args.dataset_name, streaming=args.streaming)["train"]
+        dataset = dataset.with_format("torch")
     if args.vae_path and args.taming_model_path:
         raise Exception("You can't pass vae_path and taming args at the same time.")
 
