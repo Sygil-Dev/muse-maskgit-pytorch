@@ -17,7 +17,6 @@ from accelerate import Accelerator, DistributedType, DistributedDataParallelKwar
 from ema_pytorch import EMA
 from torch.optim import Adam, AdamW
 from lion_pytorch import Lion
-from torch_optimizer import Adafactor
 
 import numpy as np
 
