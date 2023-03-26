@@ -172,6 +172,11 @@ def parse_args():
         help="Name of the huggingface dataset used.",
     )
     parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Whether to stream the huggingface dataset",
+    )
+    parser.add_argument(
         "--train_data_dir",
         type=str,
         default=None,
@@ -285,7 +290,7 @@ def main():
             save_path=args.dataset_save_path,
         )
     elif args.dataset_name:
-        dataset = load_dataset(args.dataset_name)["train"]
+        dataset = load_dataset(args.dataset_name, streaming=args.streaming)["train"]
     if args.vae_path and args.taming_model_path:
         raise Exception("You can't pass vae_path and taming args at the same time.")
 

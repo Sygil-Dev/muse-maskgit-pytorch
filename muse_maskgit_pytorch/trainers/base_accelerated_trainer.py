@@ -17,6 +17,7 @@ from accelerate import Accelerator, DistributedType, DistributedDataParallelKwar
 from ema_pytorch import EMA
 from torch.optim import Adam, AdamW
 from lion_pytorch import Lion
+from torch_optimizer import Adafactor
 
 import numpy as np
 
@@ -116,11 +117,10 @@ def get_optimizer(use_8bit_adam, optimizer, parameters, lr, weight_decay):
             optim = bnb.optim.AdamW8bit(parameters, lr=lr, weight_decay=weight_decay)
         else:
             optim = AdamW(parameters, lr=lr, weight_decay=weight_decay)
-
     elif optimizer == "Lion":
         optim = Lion(parameters, lr=lr, weight_decay=weight_decay)
         if use_8bit_adam:
-            print("8bit is not supported by the Lion optimiser, Using standard Lion instead.")
+            print("8bit is not supported by the Lion optimizer, Using standard Lion instead.")
     else:
         raise NotImplementedError(f"{optimizer} optimizer not supported yet.")
     return optim

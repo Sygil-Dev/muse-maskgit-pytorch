@@ -143,6 +143,11 @@ def parse_args():
         help="Name of the huggingface dataset used.",
     )
     parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Whether to stream the huggingface dataset",
+    )
+    parser.add_argument(
         "--train_data_dir",
         type=str,
         default=None,
@@ -199,11 +204,6 @@ def parse_args():
         type=str,
         default=None,
         help="Path to the last saved checkpoint. 'results/vae.steps.pt'",
-    )
-    parser.add_argument(
-        "--optimizer",type=str,
-        default='Lion',
-        help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion']. Default: Adam",
     )
     parser.add_argument(
         "--weight_decay", type=float,
@@ -267,7 +267,7 @@ def main():
             save_path=args.dataset_save_path,
         )
     elif args.dataset_name:
-        dataset = load_dataset(args.dataset_name)["train"]
+        dataset = load_dataset(args.dataset_name, streaming=args.streaming)["train"]
 
     vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size)
     if args.taming_model_path:
