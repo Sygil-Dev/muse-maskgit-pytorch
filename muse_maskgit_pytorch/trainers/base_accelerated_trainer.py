@@ -105,6 +105,11 @@ def get_optimizer(use_8bit_adam, optimizer, parameters, lr, weight_decay):
         except ImportError:  # bitsandbytes raises a broad exception for cuda setup errors
             raise ImportError("Please install bitsandbytes to use 8-bit optimizers. You can do so by running `pip install "
                         "bitsandbytes` | Defaulting to non 8-bit equivalent...")
+
+    bnb_supported_optims = ["Adam", "AdamW"]
+    if use_8bit_adam and optimizer not in bnb_supported_optims:
+        print(f"8bit is not supported by the {optimizer} optimizer, Using standard {optimizer} instead.")
+
     # optimizers
     if optimizer == "Adam":
         if use_8bit_adam:
@@ -118,11 +123,10 @@ def get_optimizer(use_8bit_adam, optimizer, parameters, lr, weight_decay):
             optim = AdamW(parameters, lr=lr, weight_decay=weight_decay)
     elif optimizer == "Lion":
         optim = Lion(parameters, lr=lr, weight_decay=weight_decay)
-        if use_8bit_adam:
-            print("8bit is not supported by the Lion optimizer, Using standard Lion instead.")
     else:
         raise NotImplementedError(f"{optimizer} optimizer not supported yet.")
     return optim
+
 @beartype
 class BaseAcceleratedTrainer(nn.Module):
     def __init__(
