@@ -5,6 +5,7 @@ from muse_maskgit_pytorch.vqgan_vae import VQGanVAE
 from ema_pytorch import EMA
 from diffusers.optimization import get_scheduler
 import torch_xla.core.xla_model as xm
+import torch_xla.core.functions as xf
 
 from muse_maskgit_pytorch.muse_maskgit_pytorch import MaskGit
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import (
@@ -158,7 +159,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 input_ids, attn_mask, self.model.transformer.t5, device
             )
             loss = self.model(imgs, text_embeds=text_embeds)
-            avg_loss = self.accelerator.gather(loss.repeat(self.batch_size)).mean()
+            if self.accelerator.device == xm.xla_device():
+                avg_loss = xf.all_gather(loss.repeat(self.batch_size)).mean()
+            else:
+                avg_loss = self.accelerator.gather(loss.repeat(self.batch_size)).mean()
             train_loss += avg_loss.item() / self.gradient_accumulation_steps
             self.accelerator.backward(loss)
             if exists(self.max_grad_norm):
