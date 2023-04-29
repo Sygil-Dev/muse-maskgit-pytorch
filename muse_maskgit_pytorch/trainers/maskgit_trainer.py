@@ -166,10 +166,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.model.parameters(), self.max_grad_norm
                 )
             self.lr_scheduler.step()
-            if self.accelerator.device == xm.xla_device():
-                xm.optimizer_step(self.optim)
-            else:
-                self.optim.step()
+            self.optim.step()
             self.optim.zero_grad()
         if self.accelerator.sync_gradients:
             self.steps += 1
