@@ -192,7 +192,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 )
 
                 model_path = str(self.results_dir / file_name)
-                self.accelerator.save(state_dict, model_path)
+                if self.accelerator.is_main_process:
+                    self.accelerator.save(state_dict, model_path)
 
                 if self.use_ema:
                     ema_state_dict = self.accelerator.unwrap_model(
@@ -204,8 +205,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         else f"{maskgit_save_name}.ema.pt"
                     )
                     model_path = str(self.results_dir / file_name)
-
-                    self.accelerator.save(ema_state_dict, model_path)
+                    if self.accelerator.is_main_process:
+                        self.accelerator.save(ema_state_dict, model_path)
 
                 self.print(f"{steps}: saving model to {str(self.results_dir)}")
             if steps % self.save_results_every == 0:
