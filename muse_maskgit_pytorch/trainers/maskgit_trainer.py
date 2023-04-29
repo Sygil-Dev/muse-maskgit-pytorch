@@ -180,7 +180,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 f"{steps}: maskgit loss: {logs['loss']} - lr: {self.lr_scheduler.get_last_lr()[0]}"
             )
             self.accelerator.log(logs, steps)
-            if steps % self.save_model_every == 0:
+            if steps % self.save_model_every == 0 and steps != 0:
                 state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                 maskgit_save_name = (
                     "maskgit_superres" if self.model.cond_image_size else "maskgit"
@@ -209,7 +209,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         self.accelerator.save(ema_state_dict, model_path)
 
                 self.print(f"{steps}: saving model to {str(self.results_dir)}")
-            if steps % self.save_results_every == 0:
+            if steps % self.save_results_every == 0 and steps != 0:
                 cond_image = None
                 if self.model.cond_image_size:
                     self.print(
