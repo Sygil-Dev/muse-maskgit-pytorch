@@ -507,10 +507,10 @@ class VQGanVAE(nn.Module):
     def save(self, path):
         torch.save(self.state_dict(), path)
 
-    def load(self, path):
+    def load(self, path, map=None):
         path = Path(path)
         assert path.exists()
-        state_dict = torch.load(str(path))
+        state_dict = torch.load(str(path), map_location=map)
         self.load_state_dict(state_dict)
 
     @property

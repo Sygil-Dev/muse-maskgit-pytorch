@@ -333,7 +333,8 @@ def main():
 
         accelerator.print("Resuming VAE from: ", args.vae_path)
         vae.load(
-            args.vae_path
+            args.vae_path,
+            map=accelerator.device
         )  # you will want to load the exponentially moving averaged VAE
 
     elif args.taming_model_path:
