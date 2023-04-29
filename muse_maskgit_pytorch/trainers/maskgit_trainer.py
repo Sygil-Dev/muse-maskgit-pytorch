@@ -4,6 +4,7 @@ from muse_maskgit_pytorch.vqgan_vae import VQGanVAE
 
 from ema_pytorch import EMA
 from diffusers.optimization import get_scheduler
+import torch_xla.core.xla_model as xm
 
 from muse_maskgit_pytorch.muse_maskgit_pytorch import MaskGit
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import (
@@ -165,7 +166,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.model.parameters(), self.max_grad_norm
                 )
             self.lr_scheduler.step()
-            self.optim.step()
+            if isinstance(self.accelerator.device, xm.xla_device()):
+                xm.optimizer_step(self.optim)
+            else:
+                self.optim.step()
             self.optim.zero_grad()
         if self.accelerator.sync_gradients:
             self.steps += 1
@@ -188,7 +192,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 )
 
                 model_path = str(self.results_dir / file_name)
-                self.accelerator.save(state_dict, model_path)
+                if isinstance(self.accelerator.device, xm.xla_device()):
+                    if xm.is_master_ordinal():
+                        xm.save(state_dict, model_path)
+                else:
+                    self.accelerator.save(state_dict, model_path)
 
                 if self.use_ema:
                     ema_state_dict = self.accelerator.unwrap_model(
@@ -200,7 +208,12 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         else f"{maskgit_save_name}.ema.pt"
                     )
                     model_path = str(self.results_dir / file_name)
-                    self.accelerator.save(ema_state_dict, model_path)
+
+                    if isinstance(self.accelerator.device, xm.xla_device()):
+                        if xm.is_master_ordinal():
+                            xm.save(state_dict, model_path)
+                    else:
+                        self.accelerator.save(ema_state_dict, model_path)
 
                 self.print(f"{steps}: saving model to {str(self.results_dir)}")
             if steps % self.save_results_every == 0:

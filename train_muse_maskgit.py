@@ -3,6 +3,9 @@ import torch.nn.functional as F
 from torchvision.utils import save_image
 from pathlib import Path
 from datasets import load_dataset
+import torch_xla
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
 import os
 from muse_maskgit_pytorch import (
     VQGanVAE,
@@ -276,6 +279,11 @@ def parse_args():
         action="store_true",
         help="whether to skip converting the dataset to arrow, and to directly fetch data",
     )
+    parser.add_argument(
+        "--TPU",
+        action="store_true",
+        help="whether you're training on an XLA device",
+    )
     # Parse the argument
     return parser.parse_args()
 
@@ -288,6 +296,9 @@ def main():
         mixed_precision=args.mixed_precision,
         logging_dir=args.logging_dir,
     )
+
+    if args.TPU:
+        accelerator.device = xm.xla_device()
 
     if args.train_data_dir:
         if args.skip_arrow:
@@ -404,6 +415,10 @@ def main():
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
         dataset, args.valid_frac, args.seed, args.batch_size
     )
+
+    if args.TPU:
+        dataloader = pl.MpDeviceLoader(dataloader, accelerator.device)
+        validation_dataloader = pl.MpDeviceLoader(validation_dataloader, accelerator.device)
 
     trainer = MaskGitTrainer(
         maskgit,
