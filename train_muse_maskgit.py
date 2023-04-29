@@ -419,10 +419,6 @@ def main():
         dataset, args.valid_frac, args.seed, args.batch_size
     )
 
-    if args.TPU:
-        dataloader = pl.MpDeviceLoader(dataloader, accelerator.device)
-        validation_dataloader = pl.MpDeviceLoader(validation_dataloader, accelerator.device)
-
     trainer = MaskGitTrainer(
         maskgit,
         dataloader,
