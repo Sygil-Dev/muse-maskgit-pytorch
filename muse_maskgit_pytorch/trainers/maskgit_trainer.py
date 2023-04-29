@@ -166,7 +166,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.model.parameters(), self.max_grad_norm
                 )
             self.lr_scheduler.step()
-            if self.accelerator.device is xm.xla_device():
+            if self.accelerator.device == xm.xla_device():
                 xm.optimizer_step(self.optim)
             else:
                 self.optim.step()
@@ -192,7 +192,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 )
 
                 model_path = str(self.results_dir / file_name)
-                if self.accelerator.device is xm.xla_device():
+                if self.accelerator.device == xm.xla_device():
                     if xm.is_master_ordinal():
                         xm.save(state_dict, model_path)
                 else:
@@ -209,7 +209,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     )
                     model_path = str(self.results_dir / file_name)
 
-                    if self.accelerator.device is xm.xla_device():
+                    if self.accelerator.device == xm.xla_device():
                         if xm.is_master_ordinal():
                             xm.save(state_dict, model_path)
                     else:
