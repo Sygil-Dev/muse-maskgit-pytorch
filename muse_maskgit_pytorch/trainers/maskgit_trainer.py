@@ -159,10 +159,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 input_ids, attn_mask, self.model.transformer.t5, device
             )
             loss = self.model(imgs, text_embeds=text_embeds)
-            if self.accelerator.device == xm.xla_device():
-                avg_loss = xf.all_gather(loss.repeat(self.batch_size)).mean()
-            else:
-                avg_loss = self.accelerator.gather(loss.repeat(self.batch_size)).mean()
+
+            avg_loss = self.accelerator.gather(loss.repeat(self.batch_size)).mean()
             train_loss += avg_loss.item() / self.gradient_accumulation_steps
             self.accelerator.backward(loss)
             if exists(self.max_grad_norm):

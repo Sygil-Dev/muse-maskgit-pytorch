@@ -12,6 +12,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import os, time, sys
 from tqdm import tqdm
 from threading import Thread
+import torch_xla.core.xla_model as xm
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -236,7 +237,7 @@ def get_dataset_from_dataroot(
     return dataset
 
 
-def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size=1):
+def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size=1, TPU=False):
     if valid_frac > 0:
         train_size = int((1 - valid_frac) * len(dataset))
         valid_size = len(dataset) - train_size
@@ -253,9 +254,26 @@ def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size
         print(
             f"training with shared training and valid dataset of {len(dataset)} samples"
         )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    if TPU:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset,
+        num_replicas=xm.xrt_world_size(),
+        rank=xm.get_ordinal(),
+        shuffle=True)
+
+        val_sampler = torch.utils.data.distributed.DistributedSampler(
+            validation_dataset,
+            num_replicas=xm.xrt_world_size(),
+            rank=xm.get_ordinal(),
+            shuffle=True)
+    else:
+        train_sampler = None
+        val_sampler = None
+
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, sampler=train_sampler)
 
     validation_dataloader = DataLoader(
-        validation_dataset, batch_size=batch_size, shuffle=True
+        validation_dataset, batch_size=batch_size, shuffle=True, sampler=val_sampler
     )
     return dataloader, validation_dataloader

@@ -416,8 +416,12 @@ def main():
             stream=args.streaming
         )
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
-        dataset, args.valid_frac, args.seed, args.batch_size
+        dataset, args.valid_frac, args.seed, args.batch_size, args.TPU
     )
+
+    if args.TPU:
+        dataloader = pl.ParallelLoader(dataloader).per_device_loader(accelerator.device)
+        validation_dataloader = pl.ParallelLoader(validation_dataloader).per_device_loader(accelerator.device)
 
     trainer = MaskGitTrainer(
         maskgit,
