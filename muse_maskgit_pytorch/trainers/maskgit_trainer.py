@@ -192,11 +192,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 )
 
                 model_path = str(self.results_dir / file_name)
-                if self.accelerator.device == xm.xla_device():
-                    if xm.is_master_ordinal():
-                        xm.save(state_dict, model_path)
-                else:
-                    self.accelerator.save(state_dict, model_path)
+                self.accelerator.save(state_dict, model_path)
 
                 if self.use_ema:
                     ema_state_dict = self.accelerator.unwrap_model(
@@ -209,11 +205,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     )
                     model_path = str(self.results_dir / file_name)
 
-                    if self.accelerator.device == xm.xla_device():
-                        if xm.is_master_ordinal():
-                            xm.save(state_dict, model_path)
-                    else:
-                        self.accelerator.save(ema_state_dict, model_path)
+                    self.accelerator.save(ema_state_dict, model_path)
 
                 self.print(f"{steps}: saving model to {str(self.results_dir)}")
             if steps % self.save_results_every == 0:
