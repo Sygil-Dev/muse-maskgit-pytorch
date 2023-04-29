@@ -297,9 +297,6 @@ def main():
         logging_dir=args.logging_dir,
     )
 
-    if args.TPU:
-        accelerator.device = xm.xla_device()
-
     if args.train_data_dir:
         if args.skip_arrow:
             pass
