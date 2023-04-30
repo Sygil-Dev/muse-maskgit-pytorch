@@ -1,22 +1,16 @@
-from pathlib import Path
 import copy
-import math
-from math import sqrt
 from functools import partial, wraps
+from pathlib import Path
+from typing import List
 
-from vector_quantize_pytorch import VectorQuantize as VQ
-
-import torch
-from torch import nn, einsum
-import torch.nn.functional as F
-from torch.autograd import grad as torch_grad
-
-import torchvision
-
-from einops import rearrange, reduce, repeat
-from einops.layers.torch import Rearrange
 import timm
-from diffusers.models.vae import Encoder, Decoder
+import torch
+import torch.nn.functional as F
+import torchvision
+from einops import rearrange, repeat
+from torch import nn
+from torch.autograd import grad as torch_grad
+from vector_quantize_pytorch import VectorQuantize as VQ
 
 # constants
 
@@ -30,7 +24,7 @@ def exists(val):
 
 
 def default(val, d):
-    return val if exists(val) else d
+    return val if val is not None else d
 
 
 # decorators
@@ -91,9 +85,7 @@ def group_by_key_prefix(prefix, d):
 
 
 def groupby_prefix_and_trim(prefix, d):
-    kwargs_with_prefix, kwargs = group_dict_by_key(
-        partial(string_begins_with, prefix), d
-    )
+    kwargs_with_prefix, kwargs = group_dict_by_key(partial(string_begins_with, prefix), d)
     kwargs_without_prefix = dict(
         map(lambda x: (x[0][len(prefix) :], x[1]), tuple(kwargs_with_prefix.items()))
     )
@@ -243,9 +235,7 @@ class ResnetEncDec(nn.Module):
         self.decoders = MList([])
 
         layer_mults = default(layer_mults, list(map(lambda t: 2**t, range(layers))))
-        assert (
-            len(layer_mults) == layers
-        ), "layer multipliers must be equal to designated number of layers"
+        assert len(layer_mults) == layers, "layer multipliers must be equal to designated number of layers"
 
         layer_dims = [dim * mult for mult in layer_mults]
         dims = (dim, *layer_dims)
@@ -254,8 +244,11 @@ class ResnetEncDec(nn.Module):
 
         dim_pairs = zip(dims[:-1], dims[1:])
 
-        append = lambda arr, t: arr.append(t)
-        prepend = lambda arr, t: arr.insert(0, t)
+        def append(arr: List, t):
+            arr.append(t)
+
+        def prepend(arr: List, t):
+            arr.insert(0, t)
 
         if not isinstance(num_resnet_blocks, tuple):
             num_resnet_blocks = (*((0,) * (layers - 1)), num_resnet_blocks)
@@ -269,15 +262,11 @@ class ResnetEncDec(nn.Module):
         ):
             append(
                 self.encoders,
-                nn.Sequential(
-                    nn.Conv2d(dim_in, dim_out, 4, stride=2, padding=1), leaky_relu()
-                ),
+                nn.Sequential(nn.Conv2d(dim_in, dim_out, 4, stride=2, padding=1), leaky_relu()),
             )
             prepend(
                 self.decoders,
-                nn.Sequential(
-                    nn.ConvTranspose2d(dim_out, dim_in, 4, 2, 1), leaky_relu()
-                ),
+                nn.Sequential(nn.ConvTranspose2d(dim_out, dim_in, 4, 2, 1), leaky_relu()),
             )
 
             for _ in range(layer_num_resnet_blocks):
@@ -419,9 +408,7 @@ class VQGanVAE(nn.Module):
 
         enc_dec_klass = ResnetEncDec
 
-        self.enc_dec = enc_dec_klass(
-            dim=dim, channels=channels, layers=layers, **encdec_kwargs
-        )
+        self.enc_dec = enc_dec_klass(dim=dim, channels=channels, layers=layers, **encdec_kwargs)
 
         self.vq = VQ(
             dim=self.enc_dec.encoded_dim,
@@ -507,10 +494,10 @@ class VQGanVAE(nn.Module):
     def save(self, path):
         torch.save(self.state_dict(), path)
 
-    def load(self, path):
+    def load(self, path, map=None):
         path = Path(path)
         assert path.exists()
-        state_dict = torch.load(str(path))
+        state_dict = torch.load(str(path), map_location=map)
         self.load_state_dict(state_dict)
 
     @property
@@ -542,9 +529,7 @@ class VQGanVAE(nn.Module):
         batch, channels, height, width, device = *img.shape, img.device
 
         for dim_name, size in (("height", height), ("width", width)):
-            assert (
-                size % self.dim_divisor
-            ) == 0, f"{dim_name} must be divisible by {self.dim_divisor}"
+            assert (size % self.dim_divisor) == 0, f"{dim_name} must be divisible by {self.dim_divisor}"
 
         assert (
             channels == self.channels
@@ -619,13 +604,9 @@ class VQGanVAE(nn.Module):
         last_dec_layer = self.enc_dec.last_dec_layer
 
         norm_grad_wrt_gen_loss = grad_layer_wrt_loss(gen_loss, last_dec_layer).norm(p=2)
-        norm_grad_wrt_perceptual_loss = grad_layer_wrt_loss(
-            perceptual_loss, last_dec_layer
-        ).norm(p=2)
+        norm_grad_wrt_perceptual_loss = grad_layer_wrt_loss(perceptual_loss, last_dec_layer).norm(p=2)
 
-        adaptive_weight = safe_div(
-            norm_grad_wrt_perceptual_loss, norm_grad_wrt_gen_loss
-        )
+        adaptive_weight = safe_div(norm_grad_wrt_perceptual_loss, norm_grad_wrt_gen_loss)
         adaptive_weight.clamp_(max=1e4)
 
         # combine losses

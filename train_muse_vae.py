@@ -1,32 +1,24 @@
-import torch
-import torch.nn.functional as F
-from torchvision.utils import save_image
-from pathlib import Path
+import argparse
+
 from datasets import load_dataset
-import os
+
 from muse_maskgit_pytorch import (
     VQGanVAE,
+    VQGanVAETaming,
     VQGanVAETrainer,
     get_accelerator,
-    VQGanVAETaming,
 )
 from muse_maskgit_pytorch.dataset import (
-    get_dataset_from_dataroot,
     ImageDataset,
+    get_dataset_from_dataroot,
     split_dataset_into_dataloaders,
 )
 
-import argparse
-
-import torch.nn as nn
-from accelerate import init_empty_weights
 
 def parse_args():
     # Create the parser
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--webdataset", type=str, default=None, help="Path to webdataset if using one."
-    )
+    parser.add_argument("--webdataset", type=str, default=None, help="Path to webdataset if using one.")
     parser.add_argument(
         "--only_save_last_checkpoint",
         action="store_true",
@@ -59,9 +51,7 @@ def parse_args():
         action="store_true",
         help="Whether to clear previous experiments.",
     )
-    parser.add_argument(
-        "--max_grad_norm", type=float, default=None, help="Max gradient norm."
-    )
+    parser.add_argument("--max_grad_norm", type=float, default=None, help="Max gradient norm.")
     parser.add_argument(
         "--discr_max_grad_norm",
         type=float,
@@ -69,14 +59,10 @@ def parse_args():
         help="Max gradient norm for discriminator.",
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed.")
-    parser.add_argument(
-        "--valid_frac", type=float, default=0.05, help="validation fraction."
-    )
+    parser.add_argument("--valid_frac", type=float, default=0.05, help="validation fraction.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use ema.")
     parser.add_argument("--ema_beta", type=float, default=0.995, help="Ema beta.")
-    parser.add_argument(
-        "--ema_update_after_step", type=int, default=1, help="Ema update after step."
-    )
+    parser.add_argument("--ema_update_after_step", type=int, default=1, help="Ema update after step.")
     parser.add_argument(
         "--ema_update_every",
         type=int,
@@ -143,6 +129,11 @@ def parse_args():
         help="Name of the huggingface dataset used.",
     )
     parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Whether to stream the huggingface dataset",
+    )
+    parser.add_argument(
         "--train_data_dir",
         type=str,
         default=None,
@@ -201,12 +192,8 @@ def parse_args():
         help="Path to the last saved checkpoint. 'results/vae.steps.pt'",
     )
     parser.add_argument(
-        "--optimizer",type=str,
-        default='Lion',
-        help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion']. Default: Adam",
-    )
-    parser.add_argument(
-        "--weight_decay", type=float,
+        "--weight_decay",
+        type=float,
         default=0.0,
         help="Optimizer weight_decay to use. Default: 0.0",
     )
@@ -234,6 +221,12 @@ def parse_args():
         default=0.0,
         help="Optimizer weight_decay to use. Default: 0.0",
     )
+    parser.add_argument(
+        "--cache_path",
+        type=str,
+        default=None,
+        help="The path to cache huggingface models",
+    )
     # Parse the argument
     return parser.parse_args()
 
@@ -255,9 +248,7 @@ def main():
     if args.webdataset is not None:
         import webdataset as wds
 
-        dataset = (
-            wds.WebDataset(args.webdataset).shuffle(1000).decode("rgb").to_tuple("png")
-        )
+        dataset = wds.WebDataset(args.webdataset).shuffle(1000).decode("rgb").to_tuple("png")
         dataset = dataset.map(lambda image: preprocess_webdataset(args, image))
     elif args.train_data_dir:
         dataset = get_dataset_from_dataroot(
@@ -267,7 +258,22 @@ def main():
             save_path=args.dataset_save_path,
         )
     elif args.dataset_name:
-        dataset = load_dataset(args.dataset_name)["train"]
+        if args.cache_path:
+            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)[
+                "train"
+            ]
+        else:
+            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)[
+                "train"
+            ]
+        if args.streaming:
+            if dataset.info.dataset_size is None:
+                print("Dataset doesn't support streaming, disabling streaming")
+                args.streaming = False
+                if args.cache_path:
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                else:
+                    dataset = load_dataset(args.dataset_name)["train"]
 
     vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size)
     if args.taming_model_path:
@@ -300,6 +306,7 @@ def main():
         image_column=args.image_column,
         center_crop=not args.no_center_crop,
         flip=not args.no_flip,
+        stream=args.streaming,
     )
     # dataloader
 
@@ -332,7 +339,7 @@ def main():
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
         optimizer=args.optimizer,
-        use_8bit_adam=args.use_8bit_adam
+        use_8bit_adam=args.use_8bit_adam,
     )
 
     trainer.train()

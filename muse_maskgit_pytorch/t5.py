@@ -1,10 +1,9 @@
-import logging
+from typing import List, Union
+
 import torch
 import transformers
-from transformers import T5Tokenizer, T5EncoderModel, T5Config
-
 from beartype import beartype
-from typing import List, Union
+from transformers import T5Config, T5EncoderModel, T5Tokenizer
 
 transformers.logging.set_verbosity_error()
 
@@ -24,25 +23,31 @@ T5_CONFIGS = {}
 # singleton globals
 
 
-def get_tokenizer(name):
-    tokenizer = T5Tokenizer.from_pretrained(name)
+def get_tokenizer(name, cache_path):
+    if cache_path is not None:
+        tokenizer = T5Tokenizer.from_pretrained(name, cache_dir=cache_path)
+    else:
+        tokenizer = T5Tokenizer.from_pretrained(name)
     return tokenizer
 
 
-def get_model(name):
-    model = T5EncoderModel.from_pretrained(name)
+def get_model(name, cache_path):
+    if cache_path is not None:
+        model = T5EncoderModel.from_pretrained(name, cache_dir=cache_path)
+    else:
+        model = T5EncoderModel.from_pretrained(name)
     return model
 
 
-def get_model_and_tokenizer(name):
+def get_model_and_tokenizer(name, cache_path):
     global T5_CONFIGS
 
     if name not in T5_CONFIGS:
         T5_CONFIGS[name] = dict()
     if "model" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["model"] = get_model(name)
+        T5_CONFIGS[name]["model"] = get_model(name, cache_path)
     if "tokenizer" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name)
+        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name, cache_path)
 
     return T5_CONFIGS[name]["model"], T5_CONFIGS[name]["tokenizer"]
 
@@ -93,6 +98,4 @@ def t5_encode_text(texts: Union[str, List[str]], tokenizer, t5, output_device=No
         max_length=MAX_LENGTH,
         truncation=True,
     )
-    return t5_encode_text_from_encoded(
-        encoded["input_ids"], encoded["attention_mask"], t5, output_device
-    )
+    return t5_encode_text_from_encoded(encoded["input_ids"], encoded["attention_mask"], t5, output_device)

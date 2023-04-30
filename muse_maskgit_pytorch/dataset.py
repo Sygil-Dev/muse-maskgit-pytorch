@@ -1,27 +1,40 @@
-from torch.utils.data import Dataset
-import torchvision.transforms as T
-from PIL import ImageFile
-from pathlib import Path
-from muse_maskgit_pytorch.t5 import MAX_LENGTH
-import datasets
-from datasets import Image, load_from_disk
+import os
 import random
-import torch
-from torch.utils.data import Dataset, DataLoader, random_split
-import os, time, sys
-from tqdm import tqdm
+import sys
+import time
+from pathlib import Path
 from threading import Thread
+
+import datasets
+import torch
+import torch_xla.core.xla_model as xm
+import torchvision.transforms as T
+from datasets import Image
+from PIL import Image as pImage
+from PIL import ImageFile
+from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
+
+from muse_maskgit_pytorch.t5 import MAX_LENGTH
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class ImageDataset(Dataset):
     def __init__(
-        self, dataset, image_size, image_column="image", flip=True, center_crop=True
+        self,
+        dataset,
+        image_size,
+        image_column="image",
+        flip=True,
+        center_crop=True,
+        stream=False,
     ):
         super().__init__()
         self.dataset = dataset
         self.image_column = image_column
+        self.stream = stream
         transform_list = [
             T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
             T.Resize(image_size),
@@ -34,7 +47,11 @@ class ImageDataset(Dataset):
         self.transform = T.Compose(transform_list)
 
     def __len__(self):
-        return len(self.dataset)
+        if not self.stream:
+            return len(self.dataset)
+        else:
+            print("Using streaming, fetching length...")
+            return int(self.dataset.info.dataset_size)
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
@@ -51,6 +68,7 @@ class ImageTextDataset(ImageDataset):
         caption_column=None,
         flip=True,
         center_crop=True,
+        stream=False,
     ):
         super().__init__(
             dataset,
@@ -58,6 +76,7 @@ class ImageTextDataset(ImageDataset):
             image_column=image_column,
             flip=flip,
             center_crop=center_crop,
+            stream=stream,
         )
         self.caption_column = caption_column
         self.tokenizer = tokenizer
@@ -65,7 +84,77 @@ class ImageTextDataset(ImageDataset):
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
         descriptions = self.dataset[index][self.caption_column]
-        if self.caption_column == None or descriptions == None:
+        if self.caption_column is None or descriptions is None:
+            text = ""
+        elif isinstance(descriptions, list):
+            if len(descriptions) == 0:
+                text = ""
+            else:
+                text = random.choice(descriptions)
+        else:
+            text = descriptions
+        # max length from the paper
+        encoded = self.tokenizer.batch_encode_plus(
+            [str(text)],
+            return_tensors="pt",
+            padding="max_length",
+            max_length=MAX_LENGTH,
+            truncation=True,
+        )
+
+        input_ids = encoded.input_ids
+        attn_mask = encoded.attention_mask
+        return self.transform(image), input_ids[0], attn_mask[0]
+
+
+class LocalTextImageDataset(Dataset):
+    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True):
+        super().__init__()
+        self.tokenizer = tokenizer
+
+        print("Building dataset...")
+
+        extensions = ["jpg", "jpeg", "png", "webp"]
+        self.image_paths = []
+        self.caption_pair = []
+        self.images = []
+
+        for ext in extensions:
+            self.image_paths.extend(list(Path(path).rglob(f"*.{ext}")))
+
+        random.shuffle(self.image_paths)
+        for image_path in tqdm(self.image_paths):
+            # check image size and ignore images with 0 byte.
+            if os.path.getsize(image_path) == 0:
+                continue
+            caption_path = image_path.with_suffix(".txt")
+            if os.path.exists(str(caption_path)):
+                captions = caption_path.read_text(encoding="utf-8").split("\n")
+                captions = list(filter(lambda t: len(t) > 0, captions))
+            else:
+                captions = []
+            self.images.append(image_path)
+            self.caption_pair.append(captions)
+
+        transform_list = [
+            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
+            T.Resize(image_size),
+        ]
+        if flip:
+            transform_list.append(T.RandomHorizontalFlip())
+        if center_crop:
+            transform_list.append(T.CenterCrop(image_size))
+        transform_list.append(T.ToTensor())
+        self.transform = T.Compose(transform_list)
+
+    def __len__(self):
+        return len(self.caption_pair)
+
+    def __getitem__(self, index):
+        image = self.images[index]
+        image = pImage.open(image)
+        descriptions = self.caption_pair[index]
+        if descriptions is None:
             text = ""
         elif isinstance(descriptions, list):
             if len(descriptions) == 0:
@@ -111,15 +200,11 @@ def save_dataset_with_progress(dataset, save_path):
             if os.path.exists(save_path):
                 size = get_directory_size(save_path)
                 # Update the progress bar based on the current size of the saved file
-                pbar.update(
-                    size - pbar.n
-                )  # Update by the difference between current and previous size
+                pbar.update(size - pbar.n)  # Update by the difference between current and previous size
             time.sleep(1)
 
 
-def get_dataset_from_dataroot(
-    data_root, image_column="image", caption_column="caption", save_path="dataset"
-):
+def get_dataset_from_dataroot(data_root, image_column="image", caption_column="caption", save_path="dataset"):
     # Check if data_root is a symlink and resolve it to its target location if it is
     if os.path.islink(data_root):
         data_root = os.path.realpath(data_root)
@@ -153,25 +238,48 @@ def get_dataset_from_dataroot(
 
 
 def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size=1):
+    print(f"Dataset length: {len(dataset)} samples")
     if valid_frac > 0:
         train_size = int((1 - valid_frac) * len(dataset))
         valid_size = len(dataset) - train_size
-        dataset, validation_dataset = random_split(
+        print(f"Splitting dataset into {train_size} training samples and {valid_size} validation samples")
+        split_generator = torch.Generator().manual_seed(seed)
+        train_dataset, validation_dataset = random_split(
             dataset,
             [train_size, valid_size],
-            generator=torch.Generator().manual_seed(seed),
-        )
-        print(
-            f"training with dataset of {len(dataset)} samples and validating with randomly splitted {len(validation_dataset)} samples"
+            generator=split_generator,
         )
     else:
+        print("Using shared dataset for training and validation")
+        train_dataset = dataset
         validation_dataset = dataset
-        print(
-            f"training with shared training and valid dataset of {len(dataset)} samples"
-        )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    # xrt_world_size = xm.xrt_world_size()
+    # train_sampler, val_sampler = None, None
+    # if xrt_world_size > 1:
+    #     print(f"Detected {xrt_world_size} TPU cores/threads, using distributed sampler.")
+    #     train_sampler = DistributedSampler(
+    #         train_dataset,
+    #         num_replicas=xrt_world_size,
+    #         rank=xm.get_ordinal(),
+    #         shuffle=True,
+    #     )
+    #     val_sampler = DistributedSampler(
+    #         validation_dataset,
+    #         num_replicas=xrt_world_size,
+    #         rank=xm.get_ordinal(),
+    #         shuffle=False,
+    #     )
+
+    dataloader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+    )
 
     validation_dataloader = DataLoader(
-        validation_dataset, batch_size=batch_size, shuffle=True
+        validation_dataset,
+        batch_size=batch_size,
+        shuffle=False,
     )
     return dataloader, validation_dataloader

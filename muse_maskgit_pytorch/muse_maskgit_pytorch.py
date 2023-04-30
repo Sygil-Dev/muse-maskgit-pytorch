@@ -1,29 +1,21 @@
 import math
-from random import random
 from functools import partial
+from pathlib import Path
+from random import random
+from typing import Callable, List, Optional, Union
 
 import torch
 import torch.nn.functional as F
-from torch import nn, einsum
-
 import torchvision.transforms as T
-
-from typing import Callable, Optional, List, Union
-
-from einops import rearrange, repeat
-
 from beartype import beartype
-
-from muse_maskgit_pytorch.vqgan_vae import VQGanVAE
-from muse_maskgit_pytorch.vqgan_vae_taming import VQGanVAETaming
-from muse_maskgit_pytorch.t5 import (
-    t5_encode_text,
-    get_encoded_dim,
-    DEFAULT_T5_NAME,
-    get_model_and_tokenizer,
-)
-from pathlib import Path
+from einops import rearrange, repeat
+from torch import einsum, nn
 from tqdm.auto import tqdm
+from transformers import T5Model, T5Tokenizer
+
+from .t5 import DEFAULT_T5_NAME, get_encoded_dim, get_model_and_tokenizer, t5_encode_text
+from .vqgan_vae import VQGanVAE
+from .vqgan_vae_taming import VQGanVAETaming
 
 # helpers
 
@@ -173,9 +165,7 @@ class TransformerBlocks(nn.Module):
                 nn.ModuleList(
                     [
                         Attention(dim=dim, dim_head=dim_head, heads=heads),
-                        Attention(
-                            dim=dim, dim_head=dim_head, heads=heads, cross_attend=True
-                        ),
+                        Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
                         FeedForward(dim=dim, mult=ff_mult),
                     ]
                 )
@@ -208,6 +198,7 @@ class Transformer(nn.Module):
         t5_name=DEFAULT_T5_NAME,
         self_cond=False,
         add_mask_id=False,
+        cache_path=None,
         **kwargs
     ):
         super().__init__()
@@ -226,16 +217,16 @@ class Transformer(nn.Module):
         self.to_logits = nn.Linear(dim, self.dim_out, bias=False)
 
         # text conditioning
+        t5, tokenizer = get_model_and_tokenizer(t5_name, cache_path)
+        self.t5: T5Model = t5
+        self.tokenizer: T5Tokenizer = tokenizer
 
-        self.t5, self.tokenizer = get_model_and_tokenizer(t5_name)
         self.t5.eval()
         self.encode_text = partial(t5_encode_text, tokenizer=self.tokenizer, t5=self.t5)
         text_embed_dim = get_encoded_dim(t5_name)
 
         self.text_embed_proj = (
-            nn.Linear(text_embed_dim, dim, bias=False)
-            if text_embed_dim != dim
-            else nn.Identity()
+            nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()
         )
 
         # optional self conditioning
@@ -243,17 +234,11 @@ class Transformer(nn.Module):
         self.self_cond = self_cond
         self.self_cond_to_init_embed = FeedForward(dim)
 
-    def forward_with_cond_scale(
-        self, *args, cond_scale=3.0, return_embed=False, **kwargs
-    ):
+    def forward_with_cond_scale(self, *args, cond_scale=3.0, return_embed=False, **kwargs):
         if cond_scale == 1:
-            return self.forward(
-                *args, return_embed=return_embed, cond_drop_prob=0.0, **kwargs
-            )
+            return self.forward(*args, return_embed=return_embed, cond_drop_prob=0.0, **kwargs)
 
-        logits, embed = self.forward(
-            *args, return_embed=True, cond_drop_prob=0.0, **kwargs
-        )
+        logits, embed = self.forward(*args, return_embed=True, cond_drop_prob=0.0, **kwargs)
 
         null_logits = self.forward(*args, cond_drop_prob=1.0, **kwargs)
 
@@ -273,15 +258,9 @@ class Transformer(nn.Module):
         return_embed=False,
         **kwargs
     ):
-        neg_logits = self.forward(
-            *args, neg_text_embed=neg_text_embed, cond_drop_prob=0.0, **kwargs
-        )
+        neg_logits = self.forward(*args, neg_text_embed=neg_text_embed, cond_drop_prob=0.0, **kwargs)
         pos_logits, embed = self.forward(
-            *args,
-            return_embed=True,
-            text_embed=text_embed,
-            cond_drop_prob=0.0,
-            **kwargs
+            *args, return_embed=True, text_embed=text_embed, cond_drop_prob=0.0, **kwargs
         )
 
         scaled_logits = neg_logits + (pos_logits - neg_logits) * cond_scale
@@ -327,14 +306,10 @@ class Transformer(nn.Module):
         # concat conditioning image token ids if needed
 
         if exists(conditioning_token_ids):
-            conditioning_token_ids = rearrange(
-                conditioning_token_ids, "b ... -> b (...)"
-            )
+            conditioning_token_ids = rearrange(conditioning_token_ids, "b ... -> b (...)")
             cond_token_emb = self.token_emb(conditioning_token_ids)
             context = torch.cat((context, cond_token_emb), dim=-2)
-            context_mask = F.pad(
-                context_mask, (0, conditioning_token_ids.shape[-1]), value=True
-            )
+            context_mask = F.pad(context_mask, (0, conditioning_token_ids.shape[-1]), value=True)
 
         # embed tokens
 
@@ -357,13 +332,9 @@ class Transformer(nn.Module):
             return logits
 
         if self.dim_out == 1:
-            loss = F.binary_cross_entropy_with_logits(
-                rearrange(logits, "... 1 -> ..."), labels
-            )
+            loss = F.binary_cross_entropy_with_logits(rearrange(logits, "... 1 -> ..."), labels)
         else:
-            loss = F.cross_entropy(
-                rearrange(logits, "b n c -> b c n"), labels, ignore_index=ignore_index
-            )
+            loss = F.cross_entropy(rearrange(logits, "b n c -> b c n"), labels, ignore_index=ignore_index)
 
         if not return_logits:
             return loss
@@ -381,15 +352,11 @@ class SelfCritic(nn.Module):
         self.to_pred = nn.Linear(net.dim, 1)
 
     def forward_with_cond_scale(self, x, *args, **kwargs):
-        _, embeds = self.net.forward_with_cond_scale(
-            x, *args, return_embed=True, **kwargs
-        )
+        _, embeds = self.net.forward_with_cond_scale(x, *args, return_embed=True, **kwargs)
         return self.to_pred(embeds)
 
     def forward_with_neg_prompt(self, x, *args, **kwargs):
-        _, embeds = self.net.forward_with_neg_prompt(
-            x, *args, return_embed=True, **kwargs
-        )
+        _, embeds = self.net.forward_with_neg_prompt(x, *args, return_embed=True, **kwargs)
         return self.to_pred(embeds)
 
     def forward(self, x, *args, labels=None, **kwargs):
@@ -506,9 +473,7 @@ class MaskGit(nn.Module):
         self.transformer = transformer
         self.self_cond = transformer.self_cond
         assert (
-            self.vae.codebook_size
-            == self.cond_vae.codebook_size
-            == transformer.num_tokens
+            self.vae.codebook_size == self.cond_vae.codebook_size == transformer.num_tokens
         ), "transformer num_tokens must be set to be equal to the vae codebook size"
 
         self.mask_id = transformer.mask_id
@@ -530,7 +495,7 @@ class MaskGit(nn.Module):
         self.no_mask_token_prob = no_mask_token_prob
 
     def save(self, path):
-        torch.save(self.state_dict(), path)
+        self.accelerator.save(self.state_dict(), path)
 
     def load(self, path):
         path = Path(path)
@@ -638,9 +603,7 @@ class MaskGit(nn.Module):
 
             filtered_logits = top_k(logits, topk_filter_thres)
 
-            temperature = starting_temperature * (
-                steps_until_x0 / timesteps
-            )  # temperature is annealed
+            temperature = starting_temperature * (steps_until_x0 / timesteps)  # temperature is annealed
 
             pred_ids = gumbel_sample(filtered_logits, temperature=temperature, dim=-1)
 
@@ -658,9 +621,9 @@ class MaskGit(nn.Module):
 
                 scores = rearrange(scores, "... 1 -> ...")
 
-                scores = scores + (
-                    uniform(scores.shape, device=device) - 0.5
-                ) * critic_noise_scale * (steps_until_x0 / timesteps)
+                scores = scores + (uniform(scores.shape, device=device) - 0.5) * critic_noise_scale * (
+                    steps_until_x0 / timesteps
+                )
 
             else:
                 probs_without_temperature = logits.softmax(dim=-1)
@@ -700,14 +663,9 @@ class MaskGit(nn.Module):
         # tokenize if needed
 
         if images_or_ids.dtype == torch.float:
-            assert exists(
-                self.vae
-            ), "vqgan vae must be passed in if training from raw images"
+            assert exists(self.vae), "vqgan vae must be passed in if training from raw images"
             assert all(
-                [
-                    height_or_width == self.image_size
-                    for height_or_width in images_or_ids.shape[-2:]
-                ]
+                [height_or_width == self.image_size for height_or_width in images_or_ids.shape[-2:]]
             ), "the image you passed in is not of the correct dimensions"
 
             with torch.no_grad():
@@ -721,9 +679,7 @@ class MaskGit(nn.Module):
         # take care of conditioning image if specified
 
         if self.resize_image_for_cond_image:
-            cond_images_or_ids = F.interpolate(
-                images_or_ids, self.cond_image_size, mode="nearest"
-            )
+            cond_images_or_ids = F.interpolate(images_or_ids, self.cond_image_size, mode="nearest")
 
         # get some basic variables
 
@@ -744,10 +700,7 @@ class MaskGit(nn.Module):
         if exists(cond_images):
             assert exists(self.cond_vae), "cond vqgan vae must be passed in"
             assert all(
-                [
-                    height_or_width == self.cond_image_size
-                    for height_or_width in cond_images.shape[-2:]
-                ]
+                [height_or_width == self.cond_image_size for height_or_width in cond_images.shape[-2:]]
             )
 
             with torch.no_grad():
@@ -812,9 +765,7 @@ class MaskGit(nn.Module):
 
         # token critic loss
 
-        sampled_ids = gumbel_sample(
-            logits, temperature=default(sample_temperature, random())
-        )
+        sampled_ids = gumbel_sample(logits, temperature=default(sample_temperature, random()))
 
         critic_input = torch.where(mask, sampled_ids, x)
         critic_labels = (ids != critic_input).float()

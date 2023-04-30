@@ -1,29 +1,31 @@
+from os import PathLike
 from pathlib import Path
 from shutil import rmtree
-
-from beartype import beartype
-
-import torch
-from torch import nn
-from torch.optim import Adam
-from torch.utils.data import DataLoader, random_split
-from torchvision.utils import make_grid, save_image
-from PIL import Image
-from einops import rearrange
-import torch.nn.functional as F
-
-from accelerate import Accelerator, DistributedType, DistributedDataParallelKwargs
-
-from ema_pytorch import EMA
-from torch.optim import Adam, AdamW
-from lion_pytorch import Lion
+from typing import Dict, Optional, Union
 
 import numpy as np
+import torch
+from accelerate import Accelerator, DistributedDataParallelKwargs, DistributedType
+from accelerate.data_loader import MpDeviceLoaderWrapper
+from beartype import beartype
+from datasets import Dataset
+from lion_pytorch import Lion
+from torch import nn
+from torch.optim import Adam, AdamW, Optimizer
+from torch.utils.data import DataLoader, random_split
+
+
+try:
+    from bitsandbytes.optim import Adam8bit, AdamW8bit, Lion8bit
+except ImportError:
+    Adam8bit = AdamW8bit = Lion8bit = None
 
 try:
     import wandb
-except:
-    None
+except ImportError:
+    wandb = None
+
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
 
 def noop(*args, **kwargs):
@@ -35,12 +37,6 @@ def noop(*args, **kwargs):
 
 def identity(t, *args, **kwargs):
     return t
-
-
-def cycle(dl):
-    while True:
-        for data in dl:
-            yield data
 
 
 def cast_tuple(t):
@@ -65,23 +61,21 @@ def convert_image_to_fn(img_type, image):
 # image related helpers fnuctions and dataset
 
 
-def get_accelerator(**accelerate_kwargs):
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-
-    kwargs_handlers = accelerate_kwargs.get("kwargs_handlers", [])
-    kwargs_handlers.append(ddp_kwargs)
-    accelerate_kwargs.update(kwargs_handlers=kwargs_handlers)
-
-    accelerator = Accelerator(**accelerate_kwargs)
+def get_accelerator(*args, **kwargs):
+    kwargs_handlers = kwargs.get("kwargs_handlers", [])
+    if ddp_kwargs not in kwargs_handlers:
+        kwargs_handlers.append(ddp_kwargs)
+        kwargs.update(kwargs_handlers=kwargs_handlers)
+    accelerator = Accelerator(*args, **kwargs)
     return accelerator
 
 
-def split_dataset(dataset, valid_frac, accelerator, seed=42):
+def split_dataset(dataset: Dataset, valid_frac: float, accelerator: Accelerator, seed: int = 42):
     if valid_frac > 0:
         train_size = int((1 - valid_frac) * len(dataset))
         valid_size = len(dataset) - train_size
         ds, valid_ds = random_split(
-            ds,
+            dataset,
             [train_size, valid_size],
             generator=torch.Generator().manual_seed(seed),
         )
@@ -90,106 +84,130 @@ def split_dataset(dataset, valid_frac, accelerator, seed=42):
         )
     else:
         valid_ds = ds
-        accelerator.print(
-            f"training with shared training and valid dataset of {len(ds)} samples"
-        )
+        accelerator.print(f"training with shared training and valid dataset of {len(ds)} samples")
     return ds, valid_ds
 
 
 # main trainer class
 
-def get_optimizer(use_8bit_adam, optimizer, parameters, lr, weight_decay):
-    if use_8bit_adam:
-        try:
-            import bitsandbytes as bnb
-        except ImportError:  # bitsandbytes raises a broad exception for cuda setup errors
-            raise ImportError("Please install bitsandbytes to use 8-bit optimizers. You can do so by running `pip install "
-                        "bitsandbytes` | Defaulting to non 8-bit equivalent...")
+
+def get_optimizer(
+    use_8bit_adam: bool,
+    optimizer: str,
+    parameters: dict,
+    lr: float,
+    weight_decay: float,
+    optimizer_kwargs: dict = {},
+):
+    if use_8bit_adam is True and Adam8bit is None:
+        raise ImportError(
+            "Please install bitsandbytes to use 8-bit optimizers. You can do so by running `pip install "
+            "bitsandbytes` | Defaulting to non 8-bit equivalent..."
+        )
+
+    bnb_supported_optims = ["Adam", "AdamW", "Lion"]
+    if use_8bit_adam and optimizer not in bnb_supported_optims:
+        print(f"8bit is not supported by the {optimizer} optimizer, Using standard {optimizer} instead.")
+
     # optimizers
     if optimizer == "Adam":
-        if use_8bit_adam:
-            optim = bnb.optim.Adam8bit(parameters, lr=lr, weight_decay=weight_decay)
-        else:
-            optim = Adam(parameters, lr=lr, weight_decay=weight_decay)
+        return (
+            Adam8bit(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
+            if use_8bit_adam and Adam8bit is not None
+            else Adam(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
+        )
     elif optimizer == "AdamW":
-        if use_8bit_adam:
-            optim = bnb.optim.AdamW8bit(parameters, lr=lr, weight_decay=weight_decay)
-        else:
-            optim = AdamW(parameters, lr=lr, weight_decay=weight_decay)
-
+        return (
+            AdamW8bit(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
+            if use_8bit_adam and AdamW8bit is not None
+            else AdamW(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
+        )
     elif optimizer == "Lion":
-        optim = Lion(parameters, lr=lr, weight_decay=weight_decay)
-        if use_8bit_adam:
-            print("8bit is not supported by the Lion optimiser, Using standard Lion instead.")
+        # Reckless reuse of the use_8bit_adam flag
+        return (
+            Lion8bit(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
+            if use_8bit_adam and Lion8bit is not None
+            else Lion(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
+        )
     else:
         raise NotImplementedError(f"{optimizer} optimizer not supported yet.")
-    return optim
+
+
 @beartype
 class BaseAcceleratedTrainer(nn.Module):
     def __init__(
         self,
-        dataloader,
-        valid_dataloader,
-        accelerator,
+        dataloader: Union[DataLoader, MpDeviceLoaderWrapper],
+        valid_dataloader: Union[DataLoader, MpDeviceLoaderWrapper],
+        accelerator: Accelerator,
         *,
-        current_step,
-        num_train_steps,
-        max_grad_norm=None,
-        save_results_every=100,
-        save_model_every=1000,
-        results_dir="./results",
-        logging_dir="./results/logs",
-        apply_grad_penalty_every=4,
-        gradient_accumulation_steps=1,
-        clear_previous_experiments=False,
-        validation_image_scale=1,
-        only_save_last_checkpoint=False,
+        current_step: int,
+        num_train_steps: int,
+        max_grad_norm: Optional[int] = None,
+        save_results_every: int = 100,
+        save_model_every: int = 1000,
+        results_dir: Union[str, PathLike] = Path.cwd().joinpath("results"),
+        logging_dir: Union[str, PathLike] = Path.cwd().joinpath("results/logs"),
+        apply_grad_penalty_every: int = 4,
+        gradient_accumulation_steps: int = 1,
+        clear_previous_experiments: bool = False,
+        validation_image_scale: float = 1.0,
+        only_save_last_checkpoint: bool = False,
     ):
         super().__init__()
-        self.model = None
+        self.model: nn.Module = None
         # instantiate accelerator
-        self.gradient_accumulation_steps = gradient_accumulation_steps
-        self.accelerator = accelerator
-        self.results_dir = Path(results_dir)
-        if clear_previous_experiments:
-            rmtree(str(self.results_dir))
-        self.results_dir.mkdir(parents=True, exist_ok=True)
-
-        self.logging_dir = Path(logging_dir)
-        self.logging_dir.mkdir(parents=True, exist_ok=True)
+        self.gradient_accumulation_steps: int = gradient_accumulation_steps
+        self.accelerator: Accelerator = accelerator
+        self.logging_dir: Path = Path(logging_dir) if not isinstance(logging_dir, Path) else logging_dir
+        self.results_dir: Path = Path(results_dir) if not isinstance(results_dir, Path) else results_dir
 
         # training params
-        self.only_save_last_checkpoint = only_save_last_checkpoint
-        self.validation_image_scale = validation_image_scale
+        self.only_save_last_checkpoint: bool = only_save_last_checkpoint
+        self.validation_image_scale: float = validation_image_scale
         self.register_buffer("steps", torch.Tensor([current_step]))
-        self.num_train_steps = num_train_steps
-        self.max_grad_norm = max_grad_norm
+        self.num_train_steps: int = num_train_steps
+        self.max_grad_norm: Optional[Union[int, float]] = max_grad_norm
 
         self.dl = dataloader
         self.valid_dl = valid_dataloader
-        self.dl_iter = cycle(self.dl)
-        self.valid_dl_iter = cycle(self.valid_dl)
+        self.dl_iter = iter(self.dl)
+        self.valid_dl_iter = iter(self.valid_dl)
 
-        self.save_model_every = save_model_every
-        self.save_results_every = save_results_every
+        self.save_model_every: int = save_model_every
+        self.save_results_every: int = save_results_every
+        self.apply_grad_penalty_every: int = apply_grad_penalty_every
 
-        self.apply_grad_penalty_every = apply_grad_penalty_every
+        # Clear previous experiment data if requested
+        if clear_previous_experiments is True:
+            rmtree(str(self.results_dir))
+        # Make sure logging and results directories exist
+        self.logging_dir.mkdir(parents=True, exist_ok=True)
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+
+        self.optim: Optimizer = None
+
+        self.print = self.accelerator.print
+        self.log = self.accelerator.log
 
     def save(self, path):
         if not self.is_local_main_process:
             return
 
         pkg = dict(
-            model=self.get_state_dict(self.model),
+            model=self.accelerator.get_state_dict(self.model),
             optim=self.optim.state_dict(),
         )
-        torch.save(pkg, path)
+        self.accelerator.save(pkg, path)
 
-    def load(self, path):
-        path = Path(path)
-        assert path.exists()
-        pkg = torch.load(path)
+    def load(self, path: Union[str, PathLike]):
+        if not isinstance(path, Path):
+            path = Path(path)
 
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint file {path} does not exist.")
+
+        pkg = torch.load(path, map_location="cpu")
         model = self.accelerator.unwrap_model(self.model)
         model.load_state_dict(pkg["model"])
 
@@ -207,38 +225,20 @@ class BaseAcceleratedTrainer(nn.Module):
             )
             for i in range(len(images)):
                 images[i] = images[i].resize(output_size)
+
         for tracker in self.accelerator.trackers:
             if tracker.name == "tensorboard":
                 np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images(
-                    "validation", np_images, step, dataformats="NHWC"
-                )
+                tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
             if tracker.name == "wandb":
                 tracker.log(
                     {
                         "validation": [
-                            wandb.Image(
-                                image, caption="" if not prompts else prompts[i]
-                            )
+                            wandb.Image(image, caption="" if not prompts else prompts[i])
                             for i, image in enumerate(images)
                         ]
                     }
                 )
-
-    def print(self, msg):
-        self.accelerator.print(msg)
-
-    def log(self, log_dict):
-        self.accelerator.log(log_dict)
-
-    def prepare(self, *args):
-        return self.accelerator.prepare(*args)
-
-    def get_state_dict(self, model):
-        return self.accelerator.get_state_dict(model)
-
-    def unwrap_model(self, model):
-        return self.accelerator.unwrap_model(model)
 
     @property
     def device(self):
@@ -246,23 +246,22 @@ class BaseAcceleratedTrainer(nn.Module):
 
     @property
     def is_distributed(self):
-        return not (
-            self.accelerator.distributed_type == DistributedType.NO
-            and self.accelerator.num_processes == 1
+        return (
+            False
+            if self.accelerator.distributed_type == DistributedType.NO and self.accelerator.num_processes == 1
+            else True
         )
 
     @property
-    def is_main(self):
+    def is_main_process(self):
         return self.accelerator.is_main_process
 
     @property
-    def is_local_main(self):
+    def is_local_main_process(self):
         return self.accelerator.is_local_main_process
 
     def train_step(self):
-        raise NotImplementedError(
-            "You are calling train_step on the base trainer with no models"
-        )
+        raise NotImplementedError("You are calling train_step on the base trainer with no models")
 
     def train(self, log_fn=noop):
         self.model.train()
