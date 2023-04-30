@@ -1,25 +1,35 @@
-from torch.utils.data import Dataset
-import torchvision.transforms as T
-from PIL import ImageFile
-from PIL import Image as pImage
-from pathlib import Path
-from muse_maskgit_pytorch.t5 import MAX_LENGTH
-import datasets
-from datasets import Image, load_from_disk
+import os
 import random
-import torch
-from torch.utils.data import Dataset, DataLoader, random_split
-import os, time, sys
-from tqdm import tqdm
+import sys
+import time
+from pathlib import Path
 from threading import Thread
+
+import datasets
+import torch
 import torch_xla.core.xla_model as xm
+import torchvision.transforms as T
+from datasets import Image
+from PIL import Image as pImage
+from PIL import ImageFile
+from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
+
+from muse_maskgit_pytorch.t5 import MAX_LENGTH
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class ImageDataset(Dataset):
     def __init__(
-        self, dataset, image_size, image_column="image", flip=True, center_crop=True, stream=False
+        self,
+        dataset,
+        image_size,
+        image_column="image",
+        flip=True,
+        center_crop=True,
+        stream=False,
     ):
         super().__init__()
         self.dataset = dataset
@@ -58,7 +68,7 @@ class ImageTextDataset(ImageDataset):
         caption_column=None,
         flip=True,
         center_crop=True,
-        stream=False
+        stream=False,
     ):
         super().__init__(
             dataset,
@@ -66,7 +76,7 @@ class ImageTextDataset(ImageDataset):
             image_column=image_column,
             flip=flip,
             center_crop=center_crop,
-            stream=stream
+            stream=stream,
         )
         self.caption_column = caption_column
         self.tokenizer = tokenizer
@@ -74,7 +84,7 @@ class ImageTextDataset(ImageDataset):
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
         descriptions = self.dataset[index][self.caption_column]
-        if self.caption_column == None or descriptions == None:
+        if self.caption_column is None or descriptions is None:
             text = ""
         elif isinstance(descriptions, list):
             if len(descriptions) == 0:
@@ -98,13 +108,7 @@ class ImageTextDataset(ImageDataset):
 
 
 class LocalTextImageDataset(Dataset):
-    def __init__(self,
-                 path,
-                 image_size,
-                 tokenizer,
-                 flip=True,
-                 center_crop=True
-                 ):
+    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True):
         super().__init__()
         self.tokenizer = tokenizer
 
@@ -196,15 +200,11 @@ def save_dataset_with_progress(dataset, save_path):
             if os.path.exists(save_path):
                 size = get_directory_size(save_path)
                 # Update the progress bar based on the current size of the saved file
-                pbar.update(
-                    size - pbar.n
-                )  # Update by the difference between current and previous size
+                pbar.update(size - pbar.n)  # Update by the difference between current and previous size
             time.sleep(1)
 
 
-def get_dataset_from_dataroot(
-    data_root, image_column="image", caption_column="caption", save_path="dataset"
-):
+def get_dataset_from_dataroot(data_root, image_column="image", caption_column="caption", save_path="dataset"):
     # Check if data_root is a symlink and resolve it to its target location if it is
     if os.path.islink(data_root):
         data_root = os.path.realpath(data_root)
@@ -237,43 +237,49 @@ def get_dataset_from_dataroot(
     return dataset
 
 
-def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size=1, TPU=False):
+def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size=1):
+    print(f"Dataset length: {len(dataset)} samples")
     if valid_frac > 0:
         train_size = int((1 - valid_frac) * len(dataset))
         valid_size = len(dataset) - train_size
-        dataset, validation_dataset = random_split(
+        print(f"Splitting dataset into {train_size} training samples and {valid_size} validation samples")
+        split_generator = torch.Generator().manual_seed(seed)
+        train_dataset, validation_dataset = random_split(
             dataset,
             [train_size, valid_size],
-            generator=torch.Generator().manual_seed(seed),
-        )
-        print(
-            f"training with dataset of {len(dataset)} samples and validating with randomly splitted {len(validation_dataset)} samples"
+            generator=split_generator,
         )
     else:
+        print("Using shared dataset for training and validation")
+        train_dataset = dataset
         validation_dataset = dataset
-        print(
-            f"training with shared training and valid dataset of {len(dataset)} samples"
-        )
 
-    if TPU:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-        dataset,
-        num_replicas=xm.xrt_world_size(),
-        rank=xm.get_ordinal(),
-        shuffle=True)
+    # xrt_world_size = xm.xrt_world_size()
+    # train_sampler, val_sampler = None, None
+    # if xrt_world_size > 1:
+    #     print(f"Detected {xrt_world_size} TPU cores/threads, using distributed sampler.")
+    #     train_sampler = DistributedSampler(
+    #         train_dataset,
+    #         num_replicas=xrt_world_size,
+    #         rank=xm.get_ordinal(),
+    #         shuffle=True,
+    #     )
+    #     val_sampler = DistributedSampler(
+    #         validation_dataset,
+    #         num_replicas=xrt_world_size,
+    #         rank=xm.get_ordinal(),
+    #         shuffle=False,
+    #     )
 
-        val_sampler = torch.utils.data.distributed.DistributedSampler(
-            validation_dataset,
-            num_replicas=xm.xrt_world_size(),
-            rank=xm.get_ordinal(),
-            shuffle=True)
-    else:
-        train_sampler = None
-        val_sampler = None
-
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, sampler=train_sampler)
+    dataloader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+    )
 
     validation_dataloader = DataLoader(
-        validation_dataset, batch_size=batch_size, shuffle=True, sampler=val_sampler
+        validation_dataset,
+        batch_size=batch_size,
+        shuffle=False,
     )
     return dataloader, validation_dataloader

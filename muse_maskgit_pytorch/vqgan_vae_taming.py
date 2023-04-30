@@ -45,9 +45,7 @@ def download(url, filename=None, root=CACHE_PATH, is_distributed=None, backend=N
     if os.path.isfile(download_target):
         return download_target
 
-    with urllib.request.urlopen(url) as source, open(
-        download_target_tmp, "wb"
-    ) as output:
+    with urllib.request.urlopen(url) as source, open(download_target_tmp, "wb") as output:
         with tqdm(total=int(source.info().get("Content-Length")), ncols=80) as loop:
             while True:
                 buffer = source.read(8192)
@@ -58,10 +56,7 @@ def download(url, filename=None, root=CACHE_PATH, is_distributed=None, backend=N
                 loop.update(len(buffer))
 
     os.rename(download_target_tmp, download_target)
-    if (
-        distributed_utils.is_distributed
-        and distributed_utils.backend.is_local_root_worker()
-    ):
+    if distributed_utils.is_distributed and distributed_utils.backend.is_local_root_worker():
         distributed_utils.backend.local_barrier()
     return download_target
 
@@ -111,10 +106,7 @@ class VQGanVAETaming(nn.Module):
         self.model = model
 
         # f as used in https://github.com/CompVis/taming-transformers#overview-of-pretrained-models
-        f = (
-            config.model.params.ddconfig.resolution
-            / config.model.params.ddconfig.attn_resolutions[0]
-        )
+        f = config.model.params.ddconfig.resolution / config.model.params.ddconfig.attn_resolutions[0]
 
         self.num_layers = int(log(f) / log(2))
         self.channels = 3
@@ -157,9 +149,7 @@ class VQGanVAETaming(nn.Module):
         fmap, loss, (_, _, min_encodings_indices) = self.model.encode(im_seq)
 
         b, _, h, w = fmap.shape
-        min_encodings_indices = rearrange(
-            min_encodings_indices, "(b h w) 1 -> b h w", h=h, w=w, b=b
-        )
+        min_encodings_indices = rearrange(min_encodings_indices, "(b h w) 1 -> b h w", h=h, w=w, b=b)
         return fmap, min_encodings_indices, loss
 
     def decode_ids(self, ids):

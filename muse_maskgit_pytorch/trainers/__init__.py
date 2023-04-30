@@ -1,3 +1,9 @@
-from muse_maskgit_pytorch.trainers.vqvae_trainers import VQGanVAETrainer
-from muse_maskgit_pytorch.trainers.maskgit_trainer import MaskGitTrainer
-from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_accelerator
+from .base_accelerated_trainer import get_accelerator
+from .maskgit_trainer import MaskGitTrainer
+from .vqvae_trainers import VQGanVAETrainer
+
+__all__ = [
+    "VQGanVAETrainer",
+    "MaskGitTrainer",
+    "get_accelerator",
+]

@@ -1,10 +1,9 @@
-import logging
+from typing import List, Union
+
 import torch
 import transformers
-from transformers import T5Tokenizer, T5EncoderModel, T5Config
-
 from beartype import beartype
-from typing import List, Union
+from transformers import T5Config, T5EncoderModel, T5Tokenizer
 
 transformers.logging.set_verbosity_error()
 
@@ -99,6 +98,4 @@ def t5_encode_text(texts: Union[str, List[str]], tokenizer, t5, output_device=No
         max_length=MAX_LENGTH,
         truncation=True,
     )
-    return t5_encode_text_from_encoded(
-        encoded["input_ids"], encoded["attention_mask"], t5, output_device
-    )
+    return t5_encode_text_from_encoded(encoded["input_ids"], encoded["attention_mask"], t5, output_device)
