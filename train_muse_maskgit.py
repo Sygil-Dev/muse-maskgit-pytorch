@@ -9,9 +9,14 @@ import datasets
 import diffusers
 import torch
 import torch.nn.functional as F
-import torch_xla
-import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
+try:
+    import torch_xla
+    import torch_xla.core.xla_model as xm
+    import torch_xla.distributed.parallel_loader as pl
+    disable_tpu = False
+except ImportError:
+    print("TPU support has been disabled, please install torch_xla and train on an XLA device")
+    disable_tpu = True
 import transformers
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
@@ -375,6 +380,9 @@ def main():
         logging_dir=args.logging_dir,
     )
 
+    if disable_tpu:
+        args.TPU = False
+
     if accelerator.is_main_process:
         accelerator.print(f"Preparing MaskGit for training on {accelerator.device.type}")
         accelerate.utils.set_seed(args.seed)
@@ -533,8 +541,9 @@ def main():
     if accelerator.is_main_process:
         accelerator.init_trackers("muse_maskgit", config=vars(args))
 
-    if xm.xrt_world_size() > 1:
-        accelerator.print(f"Process {accelerator.process_index} XRT World Size: {xm.xrt_world_size()}")
+    if args.TPU:
+        if xm.xrt_world_size() > 1:
+            accelerator.print(f"Process {accelerator.process_index} XRT World Size: {xm.xrt_world_size()}")
 
     trainer = MaskGitTrainer(
         maskgit=maskgit,

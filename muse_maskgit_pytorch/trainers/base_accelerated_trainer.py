@@ -6,14 +6,17 @@ from typing import Dict, Optional, Union
 import numpy as np
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs, DistributedType
-from accelerate.data_loader import MpDeviceLoaderWrapper
 from beartype import beartype
 from datasets import Dataset
 from lion_pytorch import Lion
 from torch import nn
 from torch.optim import Adam, AdamW, Optimizer
 from torch.utils.data import DataLoader, random_split
-
+try:
+    from accelerate.data_loader import MpDeviceLoaderWrapper
+except ImportError:
+    MpDeviceLoaderWrapper = DataLoader
+    pass
 
 try:
     from bitsandbytes.optim import Adam8bit, AdamW8bit, Lion8bit
@@ -100,7 +103,7 @@ def get_optimizer(
     optimizer_kwargs: dict = {},
 ):
     if use_8bit_adam is True and Adam8bit is None:
-        raise ImportError(
+        print(
             "Please install bitsandbytes to use 8-bit optimizers. You can do so by running `pip install "
             "bitsandbytes` | Defaulting to non 8-bit equivalent..."
         )

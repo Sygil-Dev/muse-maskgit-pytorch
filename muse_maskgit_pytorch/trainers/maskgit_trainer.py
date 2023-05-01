@@ -2,8 +2,11 @@ import os
 from typing import List
 
 import torch.nn.functional as F
-import torch_xla.core.functions as xf
-import torch_xla.core.xla_model as xm
+try:
+    import torch_xla.core.functions as xf
+    import torch_xla.core.xla_model as xm
+except ImportError:
+    pass
 from datasets import Dataset
 from diffusers.optimization import get_scheduler, SchedulerType
 from ema_pytorch import EMA
@@ -119,9 +122,6 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         for imgs, input_ids, attn_mask in self.dl:
             steps = int(self.steps.item())
             apply_grad_penalty = not (steps % self.apply_grad_penalty_every)
-            self.accelerator.print(
-                f"step {steps}: imgs: {imgs.shape}, input_ids: {input_ids.shape}, attn_mask: {attn_mask.shape}"
-            )
             with self.accelerator.accumulate(self.model):
                 with self.accelerator.autocast():
                     text_embeds = t5_encode_text_from_encoded(
@@ -130,9 +130,6 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     loss = self.model(imgs, text_embeds=text_embeds)
                     gathered_loss = self.accelerator.gather_for_metrics(loss)
                     train_loss += gathered_loss.item() / self.gradient_accumulation_steps
-
-                # self.accelerator.print(f"loss: {loss.item()}")
-                # self.accelerator.print(f"gathered_loss: {gathered_loss.item()}")
 
                 self.accelerator.backward(loss)
                 if exists(self.max_grad_norm):
@@ -186,4 +183,3 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.accelerator.print(f"{steps}: saving to {str(self.results_dir)}")
 
                 self.steps += 1
-                self.accelerator.print(f"{steps}: step completed")

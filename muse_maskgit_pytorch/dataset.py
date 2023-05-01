@@ -7,7 +7,10 @@ from threading import Thread
 
 import datasets
 import torch
-import torch_xla.core.xla_model as xm
+try:
+    import torch_xla.core.xla_model as xm
+except ImportError:
+    pass
 import torchvision.transforms as T
 from datasets import Image
 from PIL import Image as pImage
