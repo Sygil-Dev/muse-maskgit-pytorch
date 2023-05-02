@@ -18,9 +18,8 @@ from vector_quantize_pytorch import VectorQuantize as VQ
 
 MList = nn.ModuleList
 
+
 # helper functions
-
-
 def exists(val):
     return val is not None
 
@@ -30,8 +29,6 @@ def default(val, d):
 
 
 # decorators
-
-
 def eval_decorator(fn):
     def inner(model, *args, **kwargs):
         was_training = model.training

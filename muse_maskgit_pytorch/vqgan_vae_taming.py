@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from accelerate import Accelerator
 from einops import rearrange
 from omegaconf import OmegaConf, DictConfig
+
 from taming.models.vqgan import VQModel  # , GumbelVQ
 from torch import nn
 from tqdm_loggable.auto import tqdm
