@@ -7,12 +7,13 @@ from threading import Thread
 
 import datasets
 import torch
-import torchvision.transforms as T
 from datasets import Image
 from PIL import Image as pImage
 from PIL import ImageFile
 from torch.utils.data import DataLoader, Dataset, random_split
-from tqdm import tqdm
+from torchvision import transforms as T
+from tqdm_loggable.auto import tqdm
+from transformers import T5Tokenizer
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
 
@@ -60,10 +61,10 @@ class ImageTextDataset(ImageDataset):
     def __init__(
         self,
         dataset,
-        image_size,
-        tokenizer,
+        image_size: int,
+        tokenizer: T5Tokenizer,
         image_column="image",
-        caption_column=None,
+        caption_column="caption",
         flip=True,
         center_crop=True,
         stream=False,
@@ -76,8 +77,8 @@ class ImageTextDataset(ImageDataset):
             center_crop=center_crop,
             stream=stream,
         )
-        self.caption_column = caption_column
-        self.tokenizer = tokenizer
+        self.caption_column: str = caption_column
+        self.tokenizer: T5Tokenizer = tokenizer
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
