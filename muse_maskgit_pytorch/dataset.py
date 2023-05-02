@@ -252,23 +252,6 @@ def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size
         train_dataset = dataset
         validation_dataset = dataset
 
-    # xrt_world_size = xm.xrt_world_size()
-    # train_sampler, val_sampler = None, None
-    # if xrt_world_size > 1:
-    #     print(f"Detected {xrt_world_size} TPU cores/threads, using distributed sampler.")
-    #     train_sampler = DistributedSampler(
-    #         train_dataset,
-    #         num_replicas=xrt_world_size,
-    #         rank=xm.get_ordinal(),
-    #         shuffle=True,
-    #     )
-    #     val_sampler = DistributedSampler(
-    #         validation_dataset,
-    #         num_replicas=xrt_world_size,
-    #         rank=xm.get_ordinal(),
-    #         shuffle=False,
-    #     )
-
     dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
