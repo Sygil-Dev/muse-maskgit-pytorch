@@ -1,62 +1,55 @@
+from dataclasses import dataclass, field
+from functools import cached_property
 from os import PathLike
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Dict
 
 import torch
 from beartype import beartype
 from torch import Tensor
-from transformers import T5Config, T5EncoderModel, T5Tokenizer
+from transformers import T5Config, T5EncoderModel, T5Tokenizer, AutoModel
+
+
+# dataclass for T5 model info
+@dataclass
+class T5ModelInfo:
+    name: str
+    cache_dir: Optional[PathLike] = None
+    config: T5Config = field(init=False)
+
+    def __post_init__(self):
+        self.config = T5Config.from_pretrained(self.name, cache_dir=self.cache_dir)
+
+    # Using cached_property to avoid loading the model/tokenizer until needed
+    @cached_property
+    def model(self) -> T5EncoderModel:
+        return T5EncoderModel.from_pretrained(self.name, cache_dir=self.cache_dir)
+
+    @cached_property
+    def tokenizer(self) -> T5Tokenizer:
+        return T5Tokenizer.from_pretrained(self.name, cache_dir=self.cache_dir)
+
 
 # config
 MAX_LENGTH = 256
 DEFAULT_T5_NAME = "google/t5-v1_1-base"
-T5_CONFIGS = {}
+T5_OBJECTS: Dict[str, T5ModelInfo] = {}
 
 
-# singleton globals
-def get_tokenizer(name: str, cache_path: Optional[PathLike] = None) -> T5Tokenizer:
-    if cache_path is not None:
-        tokenizer = T5Tokenizer.from_pretrained(name, cache_dir=cache_path)
-    else:
-        tokenizer = T5Tokenizer.from_pretrained(name)
-    return tokenizer
+def get_model_and_tokenizer(
+    name: str, cache_path: Optional[PathLike] = None
+) -> Tuple[T5EncoderModel, T5Tokenizer]:
+    global T5_OBJECTS
+    if name not in T5_OBJECTS.keys():
+        T5_OBJECTS[name] = T5ModelInfo(name, cache_path)
+
+    return T5_OBJECTS[name].model, T5_OBJECTS[name].tokenizer
 
 
-def get_model(name: str, cache_path: Optional[PathLike] = None) -> T5EncoderModel:
-    if cache_path is not None:
-        model = T5EncoderModel.from_pretrained(name, cache_dir=cache_path)
-    else:
-        model = T5EncoderModel.from_pretrained(name)
-    return model
-
-
-def get_model_and_tokenizer(name: str, cache_path: Optional[PathLike] = None) -> Tuple[T5Config, T5Tokenizer]:
-    global T5_CONFIGS
-    if name not in T5_CONFIGS:
-        T5_CONFIGS[name] = {
-            "model": get_model(name, cache_path),
-            "tokenizer": get_tokenizer(name, cache_path),
-        }
-    else:
-        if "model" not in T5_CONFIGS[name].keys():
-            T5_CONFIGS[name]["model"] = get_model(name, cache_path)
-        if "tokenizer" not in T5_CONFIGS[name].keys():
-            T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name, cache_path)
-    return T5_CONFIGS[name]["model"], T5_CONFIGS[name]["tokenizer"]
-
-
-def get_encoded_dim(name: str) -> int:
-    global T5_CONFIGS
-    if name not in T5_CONFIGS:
-        # avoids loading the model if we only want to get the dim
-        config: T5Config = T5Config.from_pretrained(name)
-        T5_CONFIGS[name] = dict(config=config)
-    elif "config" in T5_CONFIGS[name]:
-        config: T5Config = T5_CONFIGS[name]["config"]
-    elif "model" in T5_CONFIGS[name]:
-        config: T5Config = T5_CONFIGS[name]["model"].config
-    else:
-        raise ValueError("Could not find config for T5 model")
-    return config.d_model
+def get_encoded_dim(name: str, cache_path: Optional[PathLike] = None) -> int:
+    global T5_OBJECTS
+    if name not in T5_OBJECTS.keys():
+        T5_OBJECTS[name] = T5ModelInfo(name, cache_dir=None)
+    return T5_OBJECTS[name].config.d_model
 
 
 # encoding text
