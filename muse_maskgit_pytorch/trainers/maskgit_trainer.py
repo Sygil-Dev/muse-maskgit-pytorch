@@ -2,6 +2,7 @@ import os
 from typing import List
 
 import torch.nn.functional as F
+
 try:
     import torch_xla.core.functions as xf
     import torch_xla.core.xla_model as xm
@@ -19,14 +20,6 @@ from accelerate import Accelerator
 from muse_maskgit_pytorch.muse_maskgit_pytorch import MaskGit
 from muse_maskgit_pytorch.t5 import t5_encode_text_from_encoded
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import BaseAcceleratedTrainer, get_optimizer
-
-
-def noop(*args, **kwargs):
-    pass
-
-
-def exists(val):
-    return val is not None
 
 
 class MaskGitTrainer(BaseAcceleratedTrainer):
@@ -79,7 +72,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         # maskgit
         maskgit.vae.requires_grad_(False)
         maskgit.transformer.t5.requires_grad_(False)
-        self.model = maskgit
+        self.model: MaskGit = maskgit
 
         self.optim: Optimizer = optimizer
         self.lr_scheduler: SchedulerType = scheduler
@@ -123,16 +116,15 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             steps = int(self.steps.item())
             apply_grad_penalty = not (steps % self.apply_grad_penalty_every)
             with self.accelerator.accumulate(self.model):
-                with self.accelerator.autocast():
-                    text_embeds = t5_encode_text_from_encoded(
-                        input_ids, attn_mask, self.model.transformer.t5, device
-                    )
-                    loss = self.model(imgs, text_embeds=text_embeds)
-                    gathered_loss = self.accelerator.gather_for_metrics(loss)
-                    train_loss += gathered_loss.item() / self.gradient_accumulation_steps
+                text_embeds = t5_encode_text_from_encoded(
+                    input_ids, attn_mask, self.model.transformer.t5, device
+                )
+                loss = self.model(imgs, text_embeds=text_embeds)
+                gathered_loss = self.accelerator.gather_for_metrics(loss)
+                train_loss += gathered_loss.item() / self.gradient_accumulation_steps
 
                 self.accelerator.backward(loss)
-                if exists(self.max_grad_norm):
+                if self.max_grad_norm is not None:
                     self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 self.optim.step()
                 self.lr_scheduler.step()
