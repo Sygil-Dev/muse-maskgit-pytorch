@@ -7,16 +7,11 @@ from threading import Thread
 
 import datasets
 import torch
-try:
-    import torch_xla.core.xla_model as xm
-except ImportError:
-    pass
 import torchvision.transforms as T
 from datasets import Image
 from PIL import Image as pImage
 from PIL import ImageFile
 from torch.utils.data import DataLoader, Dataset, random_split
-from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
