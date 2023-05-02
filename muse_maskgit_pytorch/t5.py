@@ -65,7 +65,7 @@ def t5_encode_text_from_encoded(
     input_ids: Tensor,
     attn_mask: Tensor,
     t5: T5EncoderModel,
-    output_device: str = None,
+    output_device: Optional[Union[torch.device, str]] = None,
 ) -> Tensor:
     device = t5.device
     input_ids, attn_mask = input_ids.to(device), attn_mask.to(device)
