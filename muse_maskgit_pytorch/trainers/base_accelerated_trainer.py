@@ -183,8 +183,9 @@ class BaseAcceleratedTrainer(nn.Module):
         self.apply_grad_penalty_every: int = apply_grad_penalty_every
 
         # Clear previous experiment data if requested
-        if clear_previous_experiments is True:
-            rmtree(str(self.results_dir))
+        if clear_previous_experiments is True and self.accelerator.is_local_main_process:
+            if self.results_dir.exists():
+                rmtree(self.results_dir, ignore_errors=True)
         # Make sure logging and results directories exist
         self.logging_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)

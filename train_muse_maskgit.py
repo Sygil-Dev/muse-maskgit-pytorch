@@ -11,14 +11,10 @@ from rich import inspect
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
-    import torch_xla.experimental.pjrt as pjrt
-    import torch_xla.experimental.pjrt_backend
 except ImportError:
     print("TPU support has been disabled, please install torch_xla and train on an XLA device")
     torch_xla = None
     xm = None
-    pjrt = None
-    pjrt_backend = None
 
 import torch
 import transformers
@@ -386,9 +382,9 @@ def main():
         datasets.logging.set_verbosity_debug()
         diffusers.logging.set_verbosity_debug()
     else:
-        transformers.logging.set_verbosity_info()
-        datasets.logging.set_verbosity_info()
-        diffusers.logging.set_verbosity_info()
+        transformers.logging.set_verbosity_error()
+        datasets.logging.set_verbosity_error()
+        diffusers.logging.set_verbosity_error()
 
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
@@ -405,13 +401,8 @@ def main():
 
     if accelerator.is_main_process:
         accelerator.print(f"Preparing MaskGit for training on {accelerator.device.type}")
-        inspect(args)
+        inspect(args, docs=False)
         accelerate.utils.set_seed(args.seed)
-
-    elif accelerator.is_local_main_process:
-        accelerator.print(
-            f"This process: index {accelerator.process_index}/{accelerator.num_processes}, local index {accelerator.local_process_index}"
-        )
 
     # Load the dataset (main process first to download, rest will load from cache)
     with accelerator.main_process_first():
@@ -444,7 +435,7 @@ def main():
         else:
             raise ValueError("You must pass either train_data_dir or dataset_name (but not both)")
 
-    # Load the VAE (main process first so we don't download it multiple times)
+    # Load the VAE
     with accelerator.main_process_first():
         if args.vae_path is not None:
             accelerator.print(f"Using Muse VQGanVAE, loading from {args.vae_path}")
@@ -468,7 +459,7 @@ def main():
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
             )
 
-    # then you plug the vae and transformer into your MaskGit like so
+    # then you plug the vae and transformer into your MaskGit like so:
 
     # (1) create your transformer / attention network
     transformer: MaskGitTransformer = MaskGitTransformer(
@@ -513,26 +504,27 @@ def main():
             accelerator.print("Initialized new empty MaskGit model.")
             current_step = 0
 
-    # Create the dataset object
-    if args.skip_arrow and args.train_data_dir:
-        dataset = LocalTextImageDataset(
-            args.train_data_dir,
-            args.image_size,
-            tokenizer=transformer.tokenizer,
-            center_crop=False if args.no_center_crop else True,
-            flip=False if args.no_flip else True,
-        )
-    else:
-        dataset = ImageTextDataset(
-            dataset,
-            args.image_size,
-            transformer.tokenizer,
-            image_column=args.image_column,
-            caption_column=args.caption_column,
-            center_crop=False if args.no_center_crop else True,
-            flip=False if args.no_flip else True,
-            stream=args.streaming,
-        )
+    # Create the dataset objects
+    with accelerator.main_process_first():
+        if args.skip_arrow and args.train_data_dir:
+            dataset = LocalTextImageDataset(
+                args.train_data_dir,
+                args.image_size,
+                tokenizer=transformer.tokenizer,
+                center_crop=False if args.no_center_crop else True,
+                flip=False if args.no_flip else True,
+            )
+        else:
+            dataset = ImageTextDataset(
+                dataset,
+                args.image_size,
+                transformer.tokenizer,
+                image_column=args.image_column,
+                caption_column=args.caption_column,
+                center_crop=False if args.no_center_crop else True,
+                flip=False if args.no_flip else True,
+                stream=args.streaming,
+            )
 
     # Create the dataloaders
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
@@ -559,19 +551,38 @@ def main():
         maskgit, optimizer, dataloader, validation_dataloader, scheduler
     )
 
-    # Initialize loggers now that everything has loaded
+    # Wait for everyone to catch up, then print some info and initialize the trackers
+    accelerator.wait_for_everyone()
+    accelerator.print(f"[{accelerator.process_index}] Ready to create trainer!")
+    if accelerator.distributed_type == accelerate.DistributedType.TPU:
+        proc_idx = accelerator.process_index + 1
+        n_procs = accelerator.num_processes
+        local_proc_idx = accelerator.local_process_index + 1
+        xm_ord = xm.get_ordinal() + 1
+        xm_world = xm.xrt_world_size()
+        xm_local_ord = xm.get_local_ordinal() + 1
+        xm_master_ord = xm.is_master_ordinal()
+        is_main = accelerator.is_main_process
+        is_local_main = accelerator.is_local_main_process
+
+        with accelerator.local_main_process_first():
+            print(
+                f"[P{proc_idx}]: Process #{proc_idx}/{n_procs}, local #{local_proc_idx}",
+                f"[P{proc_idx}]: XLA ord: #{xm_ord}/{xm_world}, local #{xm_local_ord}, is master: {xm_master_ord}",
+                f"[P{proc_idx}]: Accel. main: {is_main}, local main: {is_local_main}",
+            )
+
     if accelerator.is_main_process:
         accelerator.init_trackers("muse_maskgit", config=vars(args))
 
     # Print some TPU-related info if using TPU
+    accelerator.wait_for_everyone()
     if accelerator.distributed_type == accelerate.DistributedType.TPU:
         if xm.xrt_world_size() > 1:
-            accelerator.print(f"Process {accelerator.process_index} XRT World Size: {xm.xrt_world_size()}")
-        if accelerator.is_main_process and current_step == 0:
-            accelerator.print("Broadcasting master parameters from main process to all TPU cores...")
-            pjrt.broadcast_master_param(maskgit)
+            print(f"Process {accelerator.process_index} XLA World Size: {xm.xrt_world_size()}")
 
     # Create the trainer
+    accelerator.wait_for_everyone()
     trainer = MaskGitTrainer(
         maskgit=maskgit,
         dataloader=dataloader,
@@ -604,8 +615,7 @@ def main():
 
     # Train the model!
     accelerator.print("Starting training!")
-    with accelerator.autocast():
-        trainer.train()
+    trainer.train()
 
     # Clean up and wait for other processes to finish (loggers etc.)
     if accelerator.is_main_process:
