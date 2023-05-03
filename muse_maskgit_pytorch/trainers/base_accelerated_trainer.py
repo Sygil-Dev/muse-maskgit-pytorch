@@ -12,6 +12,7 @@ from lion_pytorch import Lion
 from torch import nn
 from torch.optim import Adam, AdamW, Optimizer
 from torch.utils.data import DataLoader, random_split
+
 try:
     from accelerate.data_loader import MpDeviceLoaderWrapper
 except ImportError:
@@ -194,7 +195,7 @@ class BaseAcceleratedTrainer(nn.Module):
         self.log = self.accelerator.log
 
     def save(self, path):
-        if not self.is_local_main_process:
+        if not self.accelerator.is_main_process:
             return
 
         pkg = dict(
