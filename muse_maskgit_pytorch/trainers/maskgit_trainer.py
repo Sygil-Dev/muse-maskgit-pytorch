@@ -118,8 +118,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             ema_model = self.ema_model.module if self.is_distributed else self.ema_model
         self.model.train()
         # logs
-        train_loss = 0.0
         for imgs, input_ids, attn_mask in self.dl:
+            train_loss = 0.0
             steps = int(self.steps.item())
             apply_grad_penalty = not (steps % self.apply_grad_penalty_every)
             with self.accelerator.accumulate(self.model):
