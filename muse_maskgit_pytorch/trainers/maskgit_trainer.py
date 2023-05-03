@@ -141,7 +141,9 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 if self.use_ema:
                     ema_model.update()
                 logs = {"loss": train_loss, "lr": self.lr_scheduler.get_last_lr()[0]}
-                self.print(f"{steps}: maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+                self.print(f"{steps}: maskgit loss: {logs['loss']}"
+                           f" - lr: {logs['lr']}"
+                           f" - accumulated loss: {logs['loss'] * self.gradient_accumulation_steps}")
                 self.accelerator.log(logs, step=steps)
 
                 self.accelerator.wait_for_everyone()
