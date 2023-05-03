@@ -748,11 +748,6 @@ class MaskGit(nn.Module):
                 )
 
                 self_cond_embed.detach_()
-
-        # inspect inputs
-        if self.accelerator.is_main_process:
-            inspect((x, text_embeds, self_cond_embed, cond_token_ids, labels), title="maskgit step inputs")
-
         # get loss
         ce_loss, logits = self.transformer(
             x,
