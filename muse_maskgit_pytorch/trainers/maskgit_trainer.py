@@ -188,7 +188,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 saved_image = self.save_validation_images(
                     self.validation_prompts, steps, cond_image=cond_image
                 )
-                print(f"[S{steps:05d}]{proc_label}: saved to {saved_image}")
+                self.accelerator.print(f"[S{steps:05d}]{proc_label}: saved to {saved_image}")
 
             if met is not None and not (steps % self.log_metrics_every):
                 self.accelerator.print(f"[S{steps:05d}]{proc_label}: metrics:")
@@ -229,10 +229,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 "With conditional image training, we recommend keeping the validation prompts to empty strings"
             )
             cond_image = F.interpolate(imgs[0], 256)
-
+        steps = int(self.steps.item()) + 1  # get the final step count, plus one
         self.accelerator.print(f"[S{steps:05d}]{proc_label}: Logging validation images")
         saved_image = self.save_validation_images(self.validation_prompts, steps, cond_image=cond_image)
-        print(f"[S{steps:05d}]{proc_label}: saved to {saved_image}")
+        self.accelerator.print(f"[S{steps:05d}]{proc_label}: saved to {saved_image}")
 
         if met is not None and not (steps % self.log_metrics_every):
             self.accelerator.print(f"[S{steps:05d}]{proc_label}: metrics:")
