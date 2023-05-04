@@ -230,20 +230,20 @@ class BaseAcceleratedTrainer(nn.Module):
             )
             for i in range(len(images)):
                 images[i] = images[i].resize(output_size)
-
-        for tracker in self.accelerator.trackers:
-            if tracker.name == "tensorboard":
-                np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
-            if tracker.name == "wandb":
-                tracker.log(
-                    {
-                        "validation": [
-                            wandb.Image(image, caption="" if not prompts else prompts[i])
-                            for i, image in enumerate(images)
-                        ]
-                    }
-                )
+        if self.accelerator.is_main_process:
+            for tracker in self.accelerator.trackers:
+                if tracker.name == "tensorboard":
+                    np_images = np.stack([np.asarray(img) for img in images])
+                    tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
+                elif tracker.name == "wandb":
+                    tracker.log(
+                        {
+                            "validation": [
+                                wandb.Image(image, caption="" if not prompts else prompts[i])
+                                for i, image in enumerate(images)
+                            ]
+                        }
+                    )
 
     @property
     def device(self):

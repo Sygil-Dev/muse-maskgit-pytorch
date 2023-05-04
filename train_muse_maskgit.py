@@ -8,6 +8,12 @@ import datasets
 import diffusers
 from rich import inspect
 
+import torch  # noqa: F401
+import transformers
+from datasets import load_dataset
+from diffusers.optimization import SchedulerType, get_scheduler
+from torch.optim import Optimizer
+
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
@@ -15,14 +21,6 @@ except ImportError:
     print("TPU support has been disabled, please install torch_xla and train on an XLA device")
     torch_xla = None
     xm = None
-
-import torch
-import transformers
-from datasets import load_dataset
-from diffusers.optimization import SchedulerType, get_scheduler
-from torch.optim import Optimizer
-from torch.utils.data import Dataset
-from torchvision.utils import save_image
 
 from muse_maskgit_pytorch import (
     MaskGit,
@@ -382,9 +380,7 @@ def main():
         datasets.logging.set_verbosity_debug()
         diffusers.logging.set_verbosity_debug()
     else:
-        transformers.logging.set_verbosity_error()
-        datasets.logging.set_verbosity_error()
-        diffusers.logging.set_verbosity_error()
+        logging.basicConfig(level=logging.INFO)
 
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
@@ -567,19 +563,13 @@ def main():
 
         with accelerator.local_main_process_first():
             print(
-                f"[P{proc_idx}]: Process #{proc_idx}/{n_procs}, local #{local_proc_idx}",
-                f"[P{proc_idx}]: XLA ord: #{xm_ord}/{xm_world}, local #{xm_local_ord}, is master: {xm_master_ord}",
-                f"[P{proc_idx}]: Accel. main: {is_main}, local main: {is_local_main}",
+                f"[P{proc_idx:03d}]: PID {proc_idx}/{n_procs}, local #{local_proc_idx}, ",
+                f"XLA ord={xm_ord}/{xm_world}, local={xm_local_ord}, master={xm_master_ord} ",
+                f"Accelerate: main={is_main}, local main={is_local_main} ",
             )
 
     if accelerator.is_main_process:
         accelerator.init_trackers("muse_maskgit", config=vars(args))
-
-    # Print some TPU-related info if using TPU
-    accelerator.wait_for_everyone()
-    if accelerator.distributed_type == accelerate.DistributedType.TPU:
-        if xm.xrt_world_size() > 1:
-            print(f"Process {accelerator.process_index} XLA World Size: {xm.xrt_world_size()}")
 
     # Create the trainer
     accelerator.wait_for_everyone()
