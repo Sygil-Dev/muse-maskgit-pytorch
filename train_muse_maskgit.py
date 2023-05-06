@@ -1,26 +1,26 @@
 import argparse
+import logging
 from dataclasses import dataclass
-from os import PathLike
-from pathlib import Path
 from typing import Optional
 
 import accelerate
 import datasets
 import diffusers
-import torch
-import torch.nn.functional as F
-try:
-    import torch_xla
-    import torch_xla.core.xla_model as xm
-    import torch_xla.distributed.parallel_loader as pl
-    disable_tpu = False
-except ImportError:
-    print("TPU support has been disabled, please install torch_xla and train on an XLA device")
-    disable_tpu = True
+from rich import inspect
+
+import torch  # noqa: F401
 import transformers
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
-from torchvision.utils import save_image
+from torch.optim import Optimizer
+
+try:
+    import torch_xla
+    import torch_xla.core.xla_model as xm
+except ImportError:
+    print("TPU support has been disabled, please install torch_xla and train on an XLA device")
+    torch_xla = None
+    xm = None
 
 from muse_maskgit_pytorch import (
     MaskGit,
@@ -37,6 +37,12 @@ from muse_maskgit_pytorch.dataset import (
     split_dataset_into_dataloaders,
 )
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_optimizer
+
+if accelerate.utils.is_rich_available():
+    from rich import print
+    from rich.traceback import install as traceback_install
+
+    traceback_install(show_locals=True, width=120, word_wrap=True)
 
 # Create the parser
 parser = argparse.ArgumentParser()
@@ -270,7 +276,6 @@ parser.add_argument(
     default=None,
     help="path to your trained VQGAN weights. This should be a .ckpt file. (only valid when taming option is enabled)",
 )
-
 parser.add_argument(
     "--taming_config_path",
     type=str,
@@ -299,11 +304,6 @@ parser.add_argument(
     "--skip_arrow",
     action="store_true",
     help="whether to skip converting the dataset to arrow, and to directly fetch data",
-)
-parser.add_argument(
-    "--TPU",
-    action="store_true",
-    help="whether you're training on an XLA device",
 )
 parser.add_argument(
     "--debug",
@@ -367,12 +367,21 @@ class Arguments:
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
     skip_arrow: bool = False
-    TPU: bool = False
     debug: bool = False
 
 
 def main():
     args = parser.parse_args(namespace=Arguments())
+
+    # Set up debug logging as early as possible
+    if args.debug is True:
+        logging.basicConfig(level=logging.DEBUG)
+        transformers.logging.set_verbosity_debug()
+        datasets.logging.set_verbosity_debug()
+        diffusers.logging.set_verbosity_debug()
+    else:
+        logging.basicConfig(level=logging.INFO)
+
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -380,78 +389,73 @@ def main():
         logging_dir=args.logging_dir,
     )
 
-    if disable_tpu:
-        args.TPU = False
+    # Get these errors out of the way early
+    if args.vae_path and args.taming_model_path:
+        raise ValueError("Can't pass both vae_path and taming_model_path at the same time!")
+    if args.train_data_dir and args.dataset_name:
+        raise ValueError("Can't pass both train_data_dir and dataset_name at the same time!")
 
     if accelerator.is_main_process:
         accelerator.print(f"Preparing MaskGit for training on {accelerator.device.type}")
+        inspect(args, docs=False)
         accelerate.utils.set_seed(args.seed)
-        if args.debug is True:
-            transformers.logging.set_verbosity_debug()
-            datasets.logging.set_verbosity_debug()
-            diffusers.logging.set_verbosity_debug()
-        else:
-            transformers.logging.set_verbosity_info()
-            datasets.logging.set_verbosity_info()
-            diffusers.logging.set_verbosity_info()
-    elif accelerator.is_local_main_process:
-        accelerator.print(
-            f"This process: index {accelerator.process_index}/{accelerator.num_processes}, local index {accelerator.local_process_index}"
-        )
 
-    if args.train_data_dir is not None:
-        if args.skip_arrow:
-            pass
-        else:
-            dataset = get_dataset_from_dataroot(
-                args.train_data_dir,
-                image_column=args.image_column,
-                caption_column=args.caption_column,
-                save_path=args.dataset_save_path,
+    # Load the dataset (main process first to download, rest will load from cache)
+    with accelerator.main_process_first():
+        if args.train_data_dir is not None:
+            if args.skip_arrow:
+                pass
+            else:
+                dataset = get_dataset_from_dataroot(
+                    args.train_data_dir,
+                    image_column=args.image_column,
+                    caption_column=args.caption_column,
+                    save_path=args.dataset_save_path,
+                )
+        elif args.dataset_name is not None:
+            dataset = load_dataset(
+                args.dataset_name,
+                streaming=args.streaming,
+                cache_dir=args.cache_path,
+                save_infos=True,
+                split="train",
             )
-    elif args.dataset_name is not None:
-        if args.cache_path:
-            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)[
-                "train"
-            ]
+            if args.streaming:
+                if dataset.info.dataset_size is None:
+                    print("Dataset doesn't support streaming, disabling streaming")
+                    args.streaming = False
+                    if args.cache_path:
+                        dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                    else:
+                        dataset = load_dataset(args.dataset_name)["train"]
         else:
-            dataset = load_dataset(args.dataset_name, streaming=args.streaming, cache_dir=args.cache_path)[
-                "train"
-            ]
-        if args.streaming:
-            if dataset.info.dataset_size is None:
-                print("Dataset doesn't support streaming, disabling streaming")
-                args.streaming = False
-                if args.cache_path:
-                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
-                else:
-                    dataset = load_dataset(args.dataset_name)["train"]
+            raise ValueError("You must pass either train_data_dir or dataset_name (but not both)")
 
-    if args.vae_path and args.taming_model_path:
-        raise Exception("You can't pass vae_path and taming args at the same time.")
-
-    if args.vae_path:
-        accelerator.print("Loading Muse VQGanVAE")
-        vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size).to(accelerator.device)
-
-        accelerator.print("Resuming VAE from: ", args.vae_path)
-        if args.TPU:
-            vae.load(args.vae_path, map="cpu")  # you will want to load the exponentially moving averaged VAE
+    # Load the VAE
+    with accelerator.main_process_first():
+        if args.vae_path is not None:
+            accelerator.print(f"Using Muse VQGanVAE, loading from {args.vae_path}")
+            vae = VQGanVAE(
+                dim=args.dim,
+                vq_codebook_size=args.vq_codebook_size,
+                accelerator=accelerator,
+            )
+            vae.load(args.vae_path, map="cpu")
+        elif args.taming_model_path is not None and args.taming_config_path is not None:
+            print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
+            vae = VQGanVAETaming(
+                vqgan_model_path=args.taming_model_path,
+                vqgan_config_path=args.taming_config_path,
+                accelerator=accelerator,
+            )
+            args.num_tokens = vae.codebook_size
+            args.seq_len = vae.get_encoded_fmap_size(args.image_size) ** 2
         else:
-            vae.load(
-                args.vae_path,
-            )  # you will want to load the exponentially moving averaged VAE
+            raise ValueError(
+                "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
+            )
 
-    elif args.taming_model_path:
-        print("Loading Taming VQGanVAE")
-        vae = VQGanVAETaming(
-            vqgan_model_path=args.taming_model_path,
-            vqgan_config_path=args.taming_config_path,
-        )
-        args.num_tokens = vae.codebook_size
-        args.seq_len = vae.get_encoded_fmap_size(args.image_size) ** 2
-
-    # then you plug the vae and transformer into your MaskGit like so
+    # then you plug the vae and transformer into your MaskGit like so:
 
     # (1) create your transformer / attention network
     transformer: MaskGitTransformer = MaskGitTransformer(
@@ -470,52 +474,55 @@ def main():
         cache_path=args.cache_path,
     )
     # (2) pass your trained VAE and the base transformer to MaskGit
-
     maskgit = MaskGit(
         vae=vae,  # vqgan vae
         transformer=transformer,  # transformer
+        accelerator=accelerator,  # accelerator
         image_size=args.image_size,  # image size
         cond_drop_prob=args.cond_drop_prob,  # conditional dropout, for classifier free guidance
         cond_image_size=args.cond_image_size,
     )
 
     # load the maskgit transformer from disk if we have previously trained one
-    if args.resume_path:
-        accelerator.print(f"Resuming MaskGit from: {args.resume_path}")
-        maskgit.load(args.resume_path)
+    with accelerator.main_process_first():
+        if args.resume_path:
+            accelerator.print(f"Resuming MaskGit from: {args.resume_path}")
+            maskgit.load(args.resume_path)
+            resume_from_parts = args.resume_path.split(".")
+            for i in range(len(resume_from_parts) - 1, -1, -1):
+                if resume_from_parts[i].isdigit():
+                    current_step = int(resume_from_parts[i])
+                    accelerator.print(f"Found step {current_step} for the MaskGit model.")
+                    break
+            if current_step == 0:
+                accelerator.print("No step found for the MaskGit model.")
+        else:
+            accelerator.print("Initialized new empty MaskGit model.")
+            current_step = 0
 
-        resume_from_parts = args.resume_path.split(".")
-        for i in range(len(resume_from_parts) - 1, -1, -1):
-            if resume_from_parts[i].isdigit():
-                current_step = int(resume_from_parts[i])
-                accelerator.print(f"Found step {current_step} for the MaskGit model.")
-                break
-        if current_step == 0:
-            accelerator.print("No step found for the MaskGit model.")
-    else:
-        accelerator.print("No step found for the MaskGit model.")
-        current_step = 0
+    # Create the dataset objects
+    with accelerator.main_process_first():
+        if args.skip_arrow and args.train_data_dir:
+            dataset = LocalTextImageDataset(
+                args.train_data_dir,
+                args.image_size,
+                tokenizer=transformer.tokenizer,
+                center_crop=False if args.no_center_crop else True,
+                flip=False if args.no_flip else True,
+            )
+        else:
+            dataset = ImageTextDataset(
+                dataset,
+                args.image_size,
+                transformer.tokenizer,
+                image_column=args.image_column,
+                caption_column=args.caption_column,
+                center_crop=False if args.no_center_crop else True,
+                flip=False if args.no_flip else True,
+                stream=args.streaming,
+            )
 
-    if args.skip_arrow and args.train_data_dir:
-        dataset = LocalTextImageDataset(
-            args.train_data_dir,
-            args.image_size,
-            tokenizer=transformer.tokenizer,
-            flip=not args.no_flip,
-            center_crop=not args.no_center_crop,
-        )
-    else:
-        dataset = ImageTextDataset(
-            dataset,
-            args.image_size,
-            transformer.tokenizer,
-            image_column=args.image_column,
-            caption_column=args.caption_column,
-            center_crop=not args.no_center_crop,
-            flip=not args.no_flip,
-            stream=args.streaming,
-        )
-
+    # Create the dataloaders
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
         dataset,
         args.valid_frac,
@@ -523,28 +530,49 @@ def main():
         args.batch_size,
     )
 
-    optimizer = get_optimizer(
+    # Create the optimizer and scheduler, wrap optimizer in scheduler
+    optimizer: Optimizer = get_optimizer(
         args.use_8bit_adam, args.optimizer, set(transformer.parameters()), args.lr, args.weight_decay
     )
 
-    scheduler = get_scheduler(
+    scheduler: SchedulerType = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
         num_training_steps=args.num_train_steps * args.gradient_accumulation_steps,
     )
 
+    # Prepare the model, optimizer, and dataloaders for distributed training
     maskgit, optimizer, dataloader, validation_dataloader, scheduler = accelerator.prepare(
         maskgit, optimizer, dataloader, validation_dataloader, scheduler
     )
 
+    # Wait for everyone to catch up, then print some info and initialize the trackers
+    accelerator.wait_for_everyone()
+    accelerator.print(f"[{accelerator.process_index}] Ready to create trainer!")
+    if accelerator.distributed_type == accelerate.DistributedType.TPU:
+        proc_idx = accelerator.process_index + 1
+        n_procs = accelerator.num_processes
+        local_proc_idx = accelerator.local_process_index + 1
+        xm_ord = xm.get_ordinal() + 1
+        xm_world = xm.xrt_world_size()
+        xm_local_ord = xm.get_local_ordinal() + 1
+        xm_master_ord = xm.is_master_ordinal()
+        is_main = accelerator.is_main_process
+        is_local_main = accelerator.is_local_main_process
+
+        with accelerator.local_main_process_first():
+            print(
+                f"[P{proc_idx:03d}]: PID {proc_idx}/{n_procs}, local #{local_proc_idx}, ",
+                f"XLA ord={xm_ord}/{xm_world}, local={xm_local_ord}, master={xm_master_ord} ",
+                f"Accelerate: main={is_main}, local main={is_local_main} ",
+            )
+
     if accelerator.is_main_process:
         accelerator.init_trackers("muse_maskgit", config=vars(args))
 
-    if args.TPU:
-        if xm.xrt_world_size() > 1:
-            accelerator.print(f"Process {accelerator.process_index} XRT World Size: {xm.xrt_world_size()}")
-
+    # Create the trainer
+    accelerator.wait_for_everyone()
     trainer = MaskGitTrainer(
         maskgit=maskgit,
         dataloader=dataloader,
@@ -571,12 +599,15 @@ def main():
         only_save_last_checkpoint=args.only_save_last_checkpoint,
     )
 
+    # Prepare the trainer for distributed training
     accelerator.print("MaskGit Trainer initialized, preparing for training...")
     trainer = accelerator.prepare(trainer)
 
+    # Train the model!
     accelerator.print("Starting training!")
     trainer.train()
 
+    # Clean up and wait for other processes to finish (loggers etc.)
     if accelerator.is_main_process:
         accelerator.print("Training complete!")
         accelerator.end_training()

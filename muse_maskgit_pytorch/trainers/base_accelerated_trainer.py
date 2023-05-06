@@ -12,6 +12,7 @@ from lion_pytorch import Lion
 from torch import nn
 from torch.optim import Adam, AdamW, Optimizer
 from torch.utils.data import DataLoader, random_split
+
 try:
     from accelerate.data_loader import MpDeviceLoaderWrapper
 except ImportError:
@@ -182,8 +183,9 @@ class BaseAcceleratedTrainer(nn.Module):
         self.apply_grad_penalty_every: int = apply_grad_penalty_every
 
         # Clear previous experiment data if requested
-        if clear_previous_experiments is True:
-            rmtree(str(self.results_dir))
+        if clear_previous_experiments is True and self.accelerator.is_local_main_process:
+            if self.results_dir.exists():
+                rmtree(self.results_dir, ignore_errors=True)
         # Make sure logging and results directories exist
         self.logging_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +196,7 @@ class BaseAcceleratedTrainer(nn.Module):
         self.log = self.accelerator.log
 
     def save(self, path):
-        if not self.is_local_main_process:
+        if not self.accelerator.is_main_process:
             return
 
         pkg = dict(
@@ -228,20 +230,20 @@ class BaseAcceleratedTrainer(nn.Module):
             )
             for i in range(len(images)):
                 images[i] = images[i].resize(output_size)
-
-        for tracker in self.accelerator.trackers:
-            if tracker.name == "tensorboard":
-                np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
-            if tracker.name == "wandb":
-                tracker.log(
-                    {
-                        "validation": [
-                            wandb.Image(image, caption="" if not prompts else prompts[i])
-                            for i, image in enumerate(images)
-                        ]
-                    }
-                )
+        if self.accelerator.is_main_process:
+            for tracker in self.accelerator.trackers:
+                if tracker.name == "tensorboard":
+                    np_images = np.stack([np.asarray(img) for img in images])
+                    tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
+                elif tracker.name == "wandb":
+                    tracker.log(
+                        {
+                            "validation": [
+                                wandb.Image(image, caption="" if not prompts else prompts[i])
+                                for i, image in enumerate(images)
+                            ]
+                        }
+                    )
 
     @property
     def device(self):

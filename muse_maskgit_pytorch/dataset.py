@@ -7,17 +7,13 @@ from threading import Thread
 
 import datasets
 import torch
-try:
-    import torch_xla.core.xla_model as xm
-except ImportError:
-    pass
-import torchvision.transforms as T
 from datasets import Image
 from PIL import Image as pImage
 from PIL import ImageFile
 from torch.utils.data import DataLoader, Dataset, random_split
-from torch.utils.data.distributed import DistributedSampler
-from tqdm import tqdm
+from torchvision import transforms as T
+from tqdm_loggable.auto import tqdm
+from transformers import T5Tokenizer
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
 
@@ -65,10 +61,10 @@ class ImageTextDataset(ImageDataset):
     def __init__(
         self,
         dataset,
-        image_size,
-        tokenizer,
+        image_size: int,
+        tokenizer: T5Tokenizer,
         image_column="image",
-        caption_column=None,
+        caption_column="caption",
         flip=True,
         center_crop=True,
         stream=False,
@@ -81,8 +77,8 @@ class ImageTextDataset(ImageDataset):
             center_crop=center_crop,
             stream=stream,
         )
-        self.caption_column = caption_column
-        self.tokenizer = tokenizer
+        self.caption_column: str = caption_column
+        self.tokenizer: T5Tokenizer = tokenizer
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
@@ -256,23 +252,6 @@ def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size
         print("Using shared dataset for training and validation")
         train_dataset = dataset
         validation_dataset = dataset
-
-    # xrt_world_size = xm.xrt_world_size()
-    # train_sampler, val_sampler = None, None
-    # if xrt_world_size > 1:
-    #     print(f"Detected {xrt_world_size} TPU cores/threads, using distributed sampler.")
-    #     train_sampler = DistributedSampler(
-    #         train_dataset,
-    #         num_replicas=xrt_world_size,
-    #         rank=xm.get_ordinal(),
-    #         shuffle=True,
-    #     )
-    #     val_sampler = DistributedSampler(
-    #         validation_dataset,
-    #         num_replicas=xrt_world_size,
-    #         rank=xm.get_ordinal(),
-    #         shuffle=False,
-    #     )
 
     dataloader = DataLoader(
         train_dataset,
