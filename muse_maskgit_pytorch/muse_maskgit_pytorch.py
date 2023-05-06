@@ -1,39 +1,33 @@
 import math
-from random import random
 from functools import partial
+from os import PathLike
+from pathlib import Path
+from random import random
+from typing import Callable, List, Optional, Union
 
 import torch
 import torch.nn.functional as F
-from torch import nn, einsum
-
 import torchvision.transforms as T
-
-from typing import Callable, Optional, List, Union
-
-from einops import rearrange, repeat
-
+from accelerate import Accelerator
 from beartype import beartype
-
-from muse_maskgit_pytorch.vqgan_vae import VQGanVAE
-from muse_maskgit_pytorch.vqgan_vae_taming import VQGanVAETaming
-from muse_maskgit_pytorch.t5 import (
-    t5_encode_text,
-    get_encoded_dim,
-    DEFAULT_T5_NAME,
-    get_model_and_tokenizer,
-)
-from pathlib import Path
+from einops import rearrange, repeat
+from rich import inspect
+from torch import einsum, nn, isnan
 from tqdm.auto import tqdm
+from transformers import T5EncoderModel, T5Tokenizer
+
+from .t5 import DEFAULT_T5_NAME, get_encoded_dim, get_model_and_tokenizer, t5_encode_text
+from .vqgan_vae import VQGanVAE
+from .vqgan_vae_taming import VQGanVAETaming
+
 
 # helpers
-
-
 def exists(val):
     return val is not None
 
 
 def default(val, d):
-    return val if exists(val) else d
+    return val if val is not None else d
 
 
 def eval_decorator(fn):
@@ -52,8 +46,6 @@ def l2norm(t):
 
 
 # tensor helpers
-
-
 def get_mask_subset_prob(mask, prob, min_mask=0):
     batch, seq, device = *mask.shape, mask.device
     num_to_mask = (mask.sum(dim=-1, keepdim=True) * prob).clamp(min=min_mask)
@@ -71,8 +63,6 @@ def get_mask_subset_prob(mask, prob, min_mask=0):
 
 
 # classes
-
-
 class LayerNorm(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -127,8 +117,7 @@ class Attention(nn.Module):
     def forward(self, x, context=None, context_mask=None):
         assert not (exists(context) ^ self.cross_attend)
 
-        h, is_cross_attn = self.heads, exists(context)
-
+        h = self.heads
         x = self.norm(x)
 
         kv_input = context if self.cross_attend else x
@@ -173,9 +162,7 @@ class TransformerBlocks(nn.Module):
                 nn.ModuleList(
                     [
                         Attention(dim=dim, dim_head=dim_head, heads=heads),
-                        Attention(
-                            dim=dim, dim_head=dim_head, heads=heads, cross_attend=True
-                        ),
+                        Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
                         FeedForward(dim=dim, mult=ff_mult),
                     ]
                 )
@@ -195,21 +182,19 @@ class TransformerBlocks(nn.Module):
 
 
 # transformer - it's all we need
-
-
 class Transformer(nn.Module):
     def __init__(
         self,
         *,
-        num_tokens,
-        dim,
-        seq_len,
-        dim_out=None,
-        t5_name=DEFAULT_T5_NAME,
-        self_cond=False,
-        add_mask_id=False,
-        cache_path=None,
-        **kwargs
+        num_tokens: int,
+        dim: int,
+        seq_len: int,
+        dim_out: Optional[int] = None,
+        t5_name: str = DEFAULT_T5_NAME,
+        self_cond: bool = False,
+        add_mask_id: bool = False,
+        cache_path: PathLike = None,
+        **kwargs,
     ):
         super().__init__()
         self.dim = dim
@@ -227,43 +212,35 @@ class Transformer(nn.Module):
         self.to_logits = nn.Linear(dim, self.dim_out, bias=False)
 
         # text conditioning
+        t5, tokenizer = get_model_and_tokenizer(t5_name, cache_path)
+        self.t5: T5EncoderModel = t5
+        self.tokenizer: T5Tokenizer = tokenizer
 
-        self.t5, self.tokenizer = get_model_and_tokenizer(t5_name, cache_path)
         self.t5.eval()
-        self.encode_text = partial(t5_encode_text, tokenizer=self.tokenizer, t5=self.t5)
+
         text_embed_dim = get_encoded_dim(t5_name)
 
         self.text_embed_proj = (
-            nn.Linear(text_embed_dim, dim, bias=False)
-            if text_embed_dim != dim
-            else nn.Identity()
+            nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()
         )
 
         # optional self conditioning
-
         self.self_cond = self_cond
         self.self_cond_to_init_embed = FeedForward(dim)
 
-    def forward_with_cond_scale(
-        self, *args, cond_scale=3.0, return_embed=False, **kwargs
-    ):
+    def encode_text(self, *args, **kwargs):
+        kwargs.update(tokenizer=self.tokenizer, t5=self.t5)
+        return t5_encode_text(*args, **kwargs)
+
+    def forward_with_cond_scale(self, *args, cond_scale=3.0, return_embed=False, **kwargs):
         if cond_scale == 1:
-            return self.forward(
-                *args, return_embed=return_embed, cond_drop_prob=0.0, **kwargs
-            )
+            return self.forward(*args, return_embed=return_embed, cond_drop_prob=0.0, **kwargs)
 
-        logits, embed = self.forward(
-            *args, return_embed=True, cond_drop_prob=0.0, **kwargs
-        )
-
+        logits, embed = self.forward(*args, return_embed=True, cond_drop_prob=0.0, **kwargs)
         null_logits = self.forward(*args, cond_drop_prob=1.0, **kwargs)
-
         scaled_logits = null_logits + (logits - null_logits) * cond_scale
 
-        if return_embed:
-            return scaled_logits, embed
-
-        return scaled_logits
+        return (scaled_logits, embed) if return_embed else scaled_logits
 
     def forward_with_neg_prompt(
         self,
@@ -272,17 +249,11 @@ class Transformer(nn.Module):
         neg_text_embed: torch.Tensor,
         cond_scale=3.0,
         return_embed=False,
-        **kwargs
+        **kwargs,
     ):
-        neg_logits = self.forward(
-            *args, neg_text_embed=neg_text_embed, cond_drop_prob=0.0, **kwargs
-        )
+        neg_logits = self.forward(*args, neg_text_embed=neg_text_embed, cond_drop_prob=0.0, **kwargs)
         pos_logits, embed = self.forward(
-            *args,
-            return_embed=True,
-            text_embed=text_embed,
-            cond_drop_prob=0.0,
-            **kwargs
+            *args, return_embed=True, text_embed=text_embed, cond_drop_prob=0.0, **kwargs
         )
 
         scaled_logits = neg_logits + (pos_logits - neg_logits) * cond_scale
@@ -310,9 +281,10 @@ class Transformer(nn.Module):
 
         # prepare texts
 
-        assert exists(texts) ^ exists(text_embeds)
+        if texts is not None and text_embeds is not None:
+            raise ValueError("only one of texts or text_embeds should be passed in")
 
-        if exists(texts):
+        if texts is not None:
             text_embeds = self.encode_text(texts)
 
         context = self.text_embed_proj(text_embeds)
@@ -328,14 +300,10 @@ class Transformer(nn.Module):
         # concat conditioning image token ids if needed
 
         if exists(conditioning_token_ids):
-            conditioning_token_ids = rearrange(
-                conditioning_token_ids, "b ... -> b (...)"
-            )
+            conditioning_token_ids = rearrange(conditioning_token_ids, "b ... -> b (...)")
             cond_token_emb = self.token_emb(conditioning_token_ids)
             context = torch.cat((context, cond_token_emb), dim=-2)
-            context_mask = F.pad(
-                context_mask, (0, conditioning_token_ids.shape[-1]), value=True
-            )
+            context_mask = F.pad(context_mask, (0, conditioning_token_ids.shape[-1]), value=True)
 
         # embed tokens
 
@@ -358,13 +326,9 @@ class Transformer(nn.Module):
             return logits
 
         if self.dim_out == 1:
-            loss = F.binary_cross_entropy_with_logits(
-                rearrange(logits, "... 1 -> ..."), labels
-            )
+            loss = F.binary_cross_entropy_with_logits(rearrange(logits, "... 1 -> ..."), labels)
         else:
-            loss = F.cross_entropy(
-                rearrange(logits, "b n c -> b c n"), labels, ignore_index=ignore_index
-            )
+            loss = F.cross_entropy(rearrange(logits, "b n c -> b c n"), labels, ignore_index=ignore_index)
 
         if not return_logits:
             return loss
@@ -373,8 +337,6 @@ class Transformer(nn.Module):
 
 
 # self critic wrapper
-
-
 class SelfCritic(nn.Module):
     def __init__(self, net):
         super().__init__()
@@ -382,15 +344,11 @@ class SelfCritic(nn.Module):
         self.to_pred = nn.Linear(net.dim, 1)
 
     def forward_with_cond_scale(self, x, *args, **kwargs):
-        _, embeds = self.net.forward_with_cond_scale(
-            x, *args, return_embed=True, **kwargs
-        )
+        _, embeds = self.net.forward_with_cond_scale(x, *args, return_embed=True, **kwargs)
         return self.to_pred(embeds)
 
     def forward_with_neg_prompt(self, x, *args, **kwargs):
-        _, embeds = self.net.forward_with_neg_prompt(
-            x, *args, return_embed=True, **kwargs
-        )
+        _, embeds = self.net.forward_with_neg_prompt(x, *args, return_embed=True, **kwargs)
         return self.to_pred(embeds)
 
     def forward(self, x, *args, labels=None, **kwargs):
@@ -405,23 +363,21 @@ class SelfCritic(nn.Module):
 
 
 # specialized transformers
-
-
 class MaskGitTransformer(Transformer):
     def __init__(self, *args, **kwargs):
-        assert "add_mask_id" not in kwargs
+        if kwargs.pop("add_mask_id", True) is not True:
+            raise ValueError("MaskGitTransformer does not accept add_mask_id argument")
         super().__init__(*args, add_mask_id=True, **kwargs)
 
 
 class TokenCritic(Transformer):
     def __init__(self, *args, **kwargs):
-        assert "dim_out" not in kwargs
+        if kwargs.pop("dim_out", 1) != 1:
+            raise ValueError("TokenCritic does not accept dim_out argument")
         super().__init__(*args, dim_out=1, **kwargs)
 
 
 # classifier free guidance functions
-
-
 def uniform(shape, min=0, max=1, device=None):
     return torch.zeros(shape, device=device).float().uniform_(0, 1)
 
@@ -475,52 +431,46 @@ class MaskGit(nn.Module):
         self,
         image_size,
         transformer: MaskGitTransformer,
+        accelerator: Optional[Accelerator] = None,
         noise_schedule: Callable = cosine_schedule,
         token_critic: Optional[TokenCritic] = None,
-        self_token_critic=False,
+        self_token_critic: bool = False,
         vae: Optional[Union[VQGanVAE, VQGanVAETaming]] = None,
         cond_vae: Optional[Union[VQGanVAE, VQGanVAETaming]] = None,
-        cond_image_size=None,
-        cond_drop_prob=0.5,
-        self_cond_prob=0.9,
-        no_mask_token_prob=0.0,
-        critic_loss_weight=1.0,
+        cond_image_size: Optional[int] = None,
+        cond_drop_prob: float = 0.5,
+        self_cond_prob: float = 0.9,
+        no_mask_token_prob: float = 0.0,
+        critic_loss_weight: float = 1.0,
     ):
         super().__init__()
-        self.vae = vae.copy_for_eval() if exists(vae) else None
+        self.accelerator = accelerator
 
-        if exists(cond_vae):
+        self.vae = vae.copy_for_eval() if vae is not None else None
+
+        if cond_vae is not None:
+            if cond_image_size is None:
+                raise ValueError("cond_image_size must be specified if conditioning")
             self.cond_vae = cond_vae.eval()
         else:
             self.cond_vae = self.vae
 
-        assert not (
-            exists(cond_vae) and not exists(cond_image_size)
-        ), "cond_image_size must be specified if conditioning"
-
         self.image_size = image_size
         self.cond_image_size = cond_image_size
         self.resize_image_for_cond_image = exists(cond_image_size)
-
         self.cond_drop_prob = cond_drop_prob
 
         self.transformer = transformer
         self.self_cond = transformer.self_cond
-        assert (
-            self.vae.codebook_size
-            == self.cond_vae.codebook_size
-            == transformer.num_tokens
-        ), "transformer num_tokens must be set to be equal to the vae codebook size"
+        if not self.vae.codebook_size == self.cond_vae.codebook_size == transformer.num_tokens:
+            raise ValueError("transformer num_tokens must be set to be equal to the vae codebook size")
 
         self.mask_id = transformer.mask_id
         self.noise_schedule = noise_schedule
 
-        assert not (self_token_critic and exists(token_critic))
-        self.token_critic = token_critic
-
-        if self_token_critic:
-            self.token_critic = SelfCritic(transformer)
-
+        if token_critic and self_token_critic:
+            raise ValueError("cannot have both self_token_critic and token_critic")
+        self.token_critic = SelfCritic(transformer) if self_token_critic else token_critic
         self.critic_loss_weight = critic_loss_weight
 
         # self conditioning
@@ -530,14 +480,25 @@ class MaskGit(nn.Module):
         # may be needed for self conditioning
         self.no_mask_token_prob = no_mask_token_prob
 
+    @property
+    def device(self):
+        return self.accelerator.device if self.accelerator else next(self.parameters()).device
+
     def save(self, path):
-        torch.save(self.state_dict(), path)
+        if self.accelerator:
+            self.accelerator.save(self.state_dict(), path)
+        else:
+            torch.save(self.state_dict(), path)
 
     def load(self, path):
         path = Path(path)
-        assert path.exists()
-        state_dict = torch.load(str(path))
+        if not path.exists() and path.is_file():
+            raise ValueError(f"cannot find file {path} (does not exist or is not a file)")
+        state_dict = torch.load(str(path), map_location="cpu")
         self.load_state_dict(state_dict)
+
+    def print(self, *args, **kwargs):
+        return self.accelerator.print(*args, **kwargs) if self.accelerator else print(*args, **kwargs)
 
     @torch.no_grad()
     @eval_decorator
@@ -604,9 +565,8 @@ class MaskGit(nn.Module):
                 )
 
         if self.resize_image_for_cond_image:
-            assert exists(
-                cond_images
-            ), "conditioning image must be passed in to generate for super res maskgit"
+            if cond_images is None:
+                raise ValueError("conditioning image must be passed in to generate for super res maskgit")
             with torch.no_grad():
                 _, cond_ids, _ = self.cond_vae.encode(cond_images)
 
@@ -639,9 +599,7 @@ class MaskGit(nn.Module):
 
             filtered_logits = top_k(logits, topk_filter_thres)
 
-            temperature = starting_temperature * (
-                steps_until_x0 / timesteps
-            )  # temperature is annealed
+            temperature = starting_temperature * (steps_until_x0 / timesteps)  # temperature is annealed
 
             pred_ids = gumbel_sample(filtered_logits, temperature=temperature, dim=-1)
 
@@ -659,9 +617,9 @@ class MaskGit(nn.Module):
 
                 scores = rearrange(scores, "... 1 -> ...")
 
-                scores = scores + (
-                    uniform(scores.shape, device=device) - 0.5
-                ) * critic_noise_scale * (steps_until_x0 / timesteps)
+                scores = scores + (uniform(scores.shape, device=device) - 0.5) * critic_noise_scale * (
+                    steps_until_x0 / timesteps
+                )
 
             else:
                 probs_without_temperature = logits.softmax(dim=-1)
@@ -699,69 +657,65 @@ class MaskGit(nn.Module):
         sample_temperature=None,
     ):
         # tokenize if needed
-
         if images_or_ids.dtype == torch.float:
-            assert exists(
-                self.vae
-            ), "vqgan vae must be passed in if training from raw images"
-            assert all(
-                [
-                    height_or_width == self.image_size
-                    for height_or_width in images_or_ids.shape[-2:]
-                ]
-            ), "the image you passed in is not of the correct dimensions"
+            if self.vae is None:
+                raise ValueError("you must pass in a vae if you want to train from raw images")
+
+            if not all([height_or_width == self.image_size for height_or_width in images_or_ids.shape[-2:]]):
+                raise ValueError("the image you passed in is not of the correct dimensions")
 
             with torch.no_grad():
                 _, ids, _ = self.vae.encode(images_or_ids)
+        elif self.resize_image_for_cond_image is True:
+            raise ValueError(
+                "you cannot pass in raw image token ids if you want autoresizing of images for conditioning"
+            )
         else:
-            assert (
-                not self.resize_image_for_cond_image
-            ), "you cannot pass in raw image token ids if you want the framework to autoresize image for conditioning super res transformer"
             ids = images_or_ids
 
-        # take care of conditioning image if specified
-
-        if self.resize_image_for_cond_image:
-            cond_images_or_ids = F.interpolate(
-                images_or_ids, self.cond_image_size, mode="nearest"
-            )
+        # validate text embedding arguments
+        if text_embeds is not None and texts is not None:
+            raise ValueError("cannot pass in both text and text embeddings")
+        elif text_embeds is None and texts is None:
+            raise ValueError("must pass in either text or text embeddings")
 
         # get some basic variables
-
         ids = rearrange(ids, "b ... -> b (...)")
-
         batch, seq_len, device, cond_drop_prob = (
             *ids.shape,
             ids.device,
             default(cond_drop_prob, self.cond_drop_prob),
         )
 
+        # take care of creating conditioning image if required
+        if self.resize_image_for_cond_image:
+            cond_images = F.interpolate(images_or_ids, self.cond_image_size, mode="nearest")
+
         # tokenize conditional images if needed
+        if cond_images is not None:
+            if cond_token_ids is not None:
+                raise ValueError(
+                    "if conditioning on low resolution, cannot pass in both images and token ids"
+                )
+            if self.cond_vae is None:
+                raise ValueError(
+                    "you must pass in a cond vae if you want to condition on low resolution images"
+                )
 
-        assert not (
-            exists(cond_images) and exists(cond_token_ids)
-        ), "if conditioning on low resolution, cannot pass in both images and token ids"
-
-        if exists(cond_images):
-            assert exists(self.cond_vae), "cond vqgan vae must be passed in"
             assert all(
-                [
-                    height_or_width == self.cond_image_size
-                    for height_or_width in cond_images.shape[-2:]
-                ]
+                [height_or_width == self.cond_image_size for height_or_width in cond_images.shape[-2:]]
             )
 
             with torch.no_grad():
                 _, cond_token_ids, _ = self.cond_vae.encode(cond_images)
 
         # prepare mask
-
-        rand_time = uniform((batch,), device=device)
+        rand_time = uniform((batch,), device=self.device)
         rand_mask_probs = self.noise_schedule(rand_time)
         num_token_masked = (seq_len * rand_mask_probs).round().clamp(min=1)
 
         mask_id = self.mask_id
-        batch_randperm = torch.rand((batch, seq_len), device=device).argsort(dim=-1)
+        batch_randperm = torch.rand((batch, seq_len), device=self.device).argsort(dim=-1)
         mask = batch_randperm < rearrange(num_token_masked, "b -> b 1")
 
         mask_id = self.transformer.mask_id
@@ -771,18 +725,18 @@ class MaskGit(nn.Module):
             no_mask_mask = get_mask_subset_prob(mask, self.no_mask_token_prob)
             mask &= ~no_mask_mask
 
-        x = torch.where(mask, mask_id, ids)
+        x: torch.Tensor = torch.where(mask, mask_id, ids)
 
-        # get text embeddings
-
-        if exists(texts):
+        # encode text if needed
+        if text_embeds is None and texts is not None:
             text_embeds = self.transformer.encode_text(texts)
-            texts = None
+
+        # make sure we have text embeddings now
+        if text_embeds is None:
+            raise ValueError("No text embeddings found, if text was passed it did not encode correctly")
 
         # self conditioning
-
         self_cond_embed = None
-
         if self.transformer.self_cond and random() < self.self_cond_prob:
             with torch.no_grad():
                 _, self_cond_embed = self.transformer(
@@ -794,9 +748,7 @@ class MaskGit(nn.Module):
                 )
 
                 self_cond_embed.detach_()
-
         # get loss
-
         ce_loss, logits = self.transformer(
             x,
             text_embeds=text_embeds,
@@ -807,15 +759,16 @@ class MaskGit(nn.Module):
             ignore_index=ignore_index,
             return_logits=True,
         )
+        if isnan(ce_loss):
+            self.print(f"ERROR: found NaN loss: {ce_loss}")
+            raise ValueError("NaN loss")
 
         if not exists(self.token_critic) or train_only_generator:
             return ce_loss
 
         # token critic loss
 
-        sampled_ids = gumbel_sample(
-            logits, temperature=default(sample_temperature, random())
-        )
+        sampled_ids = gumbel_sample(logits, temperature=default(sample_temperature, random()))
 
         critic_input = torch.where(mask, sampled_ids, x)
         critic_labels = (ids != critic_input).float()

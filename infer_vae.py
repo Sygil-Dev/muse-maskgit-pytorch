@@ -45,9 +45,7 @@ def parse_args():
         default=42,
         help="Seed for reproducibility. If set to -1 a random seed will be generated.",
     )
-    parser.add_argument(
-        "--valid_frac", type=float, default=0.05, help="validation fraction."
-    )
+    parser.add_argument("--valid_frac", type=float, default=0.05, help="validation fraction.")
     parser.add_argument(
         "--image_column",
         type=str,
@@ -172,23 +170,17 @@ def main():
         dataset = load_dataset(args.dataset_name)["train"]
 
     elif args.input_image:
-        dataset = Dataset.from_dict({"image": [args.input_image]}).cast_column(
-            "image", Image()
-        )
+        dataset = Dataset.from_dict({"image": [args.input_image]}).cast_column("image", Image())
 
     if args.vae_path and args.taming_model_path:
         raise Exception("You can't pass vae_path and taming args at the same time.")
 
     if args.vae_path:
         accelerator.print("Loading Muse VQGanVAE")
-        vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size).to(
-            accelerator.device
-        )
+        vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size).to(accelerator.device)
 
         accelerator.print("Resuming VAE from: ", args.vae_path)
-        vae.load(
-            args.vae_path
-        )  # you will want to load the exponentially moving averaged VAE
+        vae.load(args.vae_path)  # you will want to load the exponentially moving averaged VAE
 
     elif args.taming_model_path:
         print("Loading Taming VQGanVAE")

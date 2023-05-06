@@ -1,76 +1,77 @@
-import logging
+from dataclasses import dataclass, field
+from functools import cached_property
+from os import PathLike
+from typing import List, Optional, Tuple, Union, Dict
+
 import torch
-import transformers
-from transformers import T5Tokenizer, T5EncoderModel, T5Config
-
 from beartype import beartype
-from typing import List, Union
+from torch import Tensor
+from transformers import T5Config, T5EncoderModel, T5Tokenizer
 
-transformers.logging.set_verbosity_error()
 
+# dataclass for T5 model info
+@dataclass
+class T5ModelInfo:
+    name: str
+    cache_dir: Optional[PathLike] = None
+    dtype: Optional[torch.dtype] = torch.float32
+    config: T5Config = field(init=False)
 
-def exists(val):
-    return val is not None
+    def __post_init__(self):
+        self.config = T5Config.from_pretrained(self.name, cache_dir=self.cache_dir)
+        self._model = None
+        self._tokenizer = None
+
+    # Using cached_property to avoid loading the model/tokenizer until needed
+    @cached_property
+    def model(self) -> T5EncoderModel:
+        if not self._model:
+            self._model = T5EncoderModel.from_pretrained(
+                self.name, cache_dir=self.cache_dir, torch_dtype=self.dtype
+            )
+        return self._model
+
+    @cached_property
+    def tokenizer(self) -> T5Tokenizer:
+        if not self._tokenizer:
+            self._tokenizer = T5Tokenizer.from_pretrained(
+                self.name, cache_dir=self.cache_dir, torch_dtype=self.dtype
+            )
+        return self._tokenizer
 
 
 # config
-
 MAX_LENGTH = 256
-
 DEFAULT_T5_NAME = "google/t5-v1_1-base"
-
-T5_CONFIGS = {}
-
-# singleton globals
+T5_OBJECTS: Dict[str, T5ModelInfo] = {}
 
 
-def get_tokenizer(name, cache_path):
-    if cache_path is not None:
-        tokenizer = T5Tokenizer.from_pretrained(name, cache_dir=cache_path)
-    else:
-        tokenizer = T5Tokenizer.from_pretrained(name)
-    return tokenizer
+def get_model_and_tokenizer(
+    name: str, cache_path: Optional[PathLike] = None, dtype: torch.dtype = torch.float32
+) -> Tuple[T5EncoderModel, T5Tokenizer]:
+    global T5_OBJECTS
+    if name not in T5_OBJECTS.keys():
+        T5_OBJECTS[name] = T5ModelInfo(name=name, cache_dir=cache_path, dtype=dtype)
+    return T5_OBJECTS[name].model, T5_OBJECTS[name].tokenizer
 
 
-def get_model(name, cache_path):
-    if cache_path is not None:
-        model = T5EncoderModel.from_pretrained(name, cache_dir=cache_path)
-    else:
-        model = T5EncoderModel.from_pretrained(name)
-    return model
-
-
-def get_model_and_tokenizer(name, cache_path):
-    global T5_CONFIGS
-
-    if name not in T5_CONFIGS:
-        T5_CONFIGS[name] = dict()
-    if "model" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["model"] = get_model(name, cache_path)
-    if "tokenizer" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name, cache_path)
-
-    return T5_CONFIGS[name]["model"], T5_CONFIGS[name]["tokenizer"]
-
-
-def get_encoded_dim(name):
-    if name not in T5_CONFIGS:
-        # avoids loading the model if we only want to get the dim
-        config = T5Config.from_pretrained(name)
-        T5_CONFIGS[name] = dict(config=config)
-    elif "config" in T5_CONFIGS[name]:
-        config = T5_CONFIGS[name]["config"]
-    elif "model" in T5_CONFIGS[name]:
-        config = T5_CONFIGS[name]["model"].config
-    else:
-        assert False
-    return config.d_model
+def get_encoded_dim(
+    name: str, cache_path: Optional[PathLike] = None, dtype: torch.dtype = torch.float32
+) -> int:
+    global T5_OBJECTS
+    if name not in T5_OBJECTS.keys():
+        T5_OBJECTS[name] = T5ModelInfo(name=name, cache_dir=cache_path, dtype=dtype)
+    return T5_OBJECTS[name].config.d_model
 
 
 # encoding text
-
-
-def t5_encode_text_from_encoded(input_ids, attn_mask, t5, output_device):
+@beartype
+def t5_encode_text_from_encoded(
+    input_ids: Tensor,
+    attn_mask: Tensor,
+    t5: T5EncoderModel,
+    output_device: Optional[Union[torch.device, str]] = None,
+) -> Tensor:
     device = t5.device
     input_ids, attn_mask = input_ids.to(device), attn_mask.to(device)
     with torch.no_grad():
@@ -78,17 +79,17 @@ def t5_encode_text_from_encoded(input_ids, attn_mask, t5, output_device):
         encoded_text = output.last_hidden_state.detach()
 
     attn_mask = attn_mask.bool()
-    encoded_text = encoded_text.masked_fill(attn_mask[..., None], 0.0)
-
-    if not exists(output_device):
-        return encoded_text
-
-    encoded_text.to(output_device)
-    return encoded_text
+    encoded_text: Tensor = encoded_text.masked_fill(attn_mask[..., None], 0.0)
+    return encoded_text if output_device is None else encoded_text.to(output_device)
 
 
 @beartype
-def t5_encode_text(texts: Union[str, List[str]], tokenizer, t5, output_device=None):
+def t5_encode_text(
+    texts: Union[str, List[str]],
+    tokenizer: T5Tokenizer,
+    t5: T5EncoderModel,
+    output_device: Optional[Union[torch.device, str]] = None,
+) -> Tensor:
     if isinstance(texts, str):
         texts = [texts]
 
@@ -99,6 +100,4 @@ def t5_encode_text(texts: Union[str, List[str]], tokenizer, t5, output_device=No
         max_length=MAX_LENGTH,
         truncation=True,
     )
-    return t5_encode_text_from_encoded(
-        encoded["input_ids"], encoded["attention_mask"], t5, output_device
-    )
+    return t5_encode_text_from_encoded(encoded["input_ids"], encoded["attention_mask"], t5, output_device)

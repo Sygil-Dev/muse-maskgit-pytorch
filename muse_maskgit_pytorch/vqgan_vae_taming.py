@@ -1,24 +1,22 @@
-import os
 import copy
-import urllib
-from pathlib import Path
-from tqdm import tqdm
-from math import sqrt, log
-
-from omegaconf import OmegaConf
 import importlib
+from urllib.parse import urlparse
+from math import log, sqrt
+from pathlib import Path
 
+import requests
 import torch
-from torch import nn
 import torch.nn.functional as F
-
+from accelerate import Accelerator
 from einops import rearrange
+from omegaconf import OmegaConf, DictConfig
+
 from taming.models.vqgan import VQModel  # , GumbelVQ
-import muse_maskgit_pytorch.distributed_utils as distributed_utils
+from torch import nn
+from tqdm_loggable.auto import tqdm
 
 # constants
-CACHE_PATH = Path("~/.cache/taming")
-CACHE_PATH.mkdir(parents=True, exist_ok=True)
+CACHE_PATH = Path.home().joinpath(".cache/taming")
 
 VQGAN_VAE_PATH = "https://heibox.uni-heidelberg.de/f/140747ba53464f49b476/?dl=1"
 VQGAN_VAE_CONFIG_PATH = "https://heibox.uni-heidelberg.de/f/6ecf2af6c658432c8298/?dl=1"
@@ -34,36 +32,33 @@ def default(val, d):
     return val if exists(val) else d
 
 
-def download(url, filename=None, root=CACHE_PATH, is_distributed=None, backend=None):
-    filename = default(filename, os.path.basename(url))
-    download_target = os.path.join(root, filename)
-    download_target_tmp = os.path.join(root, f"tmp.{filename}")
+def download(url, filename=None, root=CACHE_PATH, chunk_size=1024):
+    filename = default(filename, urlparse(url).path.split("/")[-1])
+    root_dir = Path(root)
 
-    if os.path.exists(download_target) and not os.path.isfile(download_target):
-        raise RuntimeError(f"{download_target} exists and is not a regular file")
+    target_path = root_dir.joinpath(filename)
+    if target_path.exists():
+        if target_path.isfile():
+            return str(target_path)
+        raise RuntimeError(f"{target_path} exists and is not a regular file")
 
-    if os.path.isfile(download_target):
-        return download_target
+    target_tmp = target_path.with_name(f".{target_path.name}.tmp")
+    resp = requests.get(url, stream=True)
+    resp.raise_for_status()
 
-    with urllib.request.urlopen(url) as source, open(
-        download_target_tmp, "wb"
-    ) as output:
-        with tqdm(total=int(source.info().get("Content-Length")), ncols=80) as loop:
-            while True:
-                buffer = source.read(8192)
-                if not buffer:
-                    break
-
-                output.write(buffer)
-                loop.update(len(buffer))
-
-    os.rename(download_target_tmp, download_target)
-    if (
-        distributed_utils.is_distributed
-        and distributed_utils.backend.is_local_root_worker()
-    ):
-        distributed_utils.backend.local_barrier()
-    return download_target
+    filesize = int(resp.headers.get("content-length", 0))
+    with target_tmp.open("wb") as f:
+        for data in tqdm(
+            resp.iter_content(chunk_size=chunk_size),
+            desc=filename,
+            total=filesize,
+            unit="iB",
+            unit_scale=True,
+            unit_divisor=1024,
+        ):
+            f.write(data)
+    target_tmp.rename(target_path)
+    return target_path
 
 
 # VQGAN from Taming Transformers paper
@@ -79,43 +74,40 @@ def get_obj_from_str(string, reload=False):
 
 
 def instantiate_from_config(config):
-    if not "target" in config:
+    if "target" not in config:
         raise KeyError("Expected key `target` to instantiate.")
     return get_obj_from_str(config["target"])(**config.get("params", dict()))
 
 
 class VQGanVAETaming(nn.Module):
-    def __init__(self, vqgan_model_path=None, vqgan_config_path=None):
+    def __init__(self, vqgan_model_path=None, vqgan_config_path=None, accelerator: Accelerator = None):
         super().__init__()
+        if accelerator is None:
+            accelerator = Accelerator()
 
+        # Download model if needed
         if vqgan_model_path is None:
+            CACHE_PATH.mkdir(parents=True, exist_ok=True)
             model_filename = "vqgan.1024.model.ckpt"
             config_filename = "vqgan.1024.config.yml"
-            download(VQGAN_VAE_CONFIG_PATH, config_filename)
-            download(VQGAN_VAE_PATH, model_filename)
-            config_path = str(Path(CACHE_PATH) / config_filename)
-            model_path = str(Path(CACHE_PATH) / model_filename)
+            with accelerator.local_main_process_first():
+                config_path = download(VQGAN_VAE_CONFIG_PATH, config_filename)
+                model_path = download(VQGAN_VAE_PATH, model_filename)
         else:
-            model_path = vqgan_model_path
-            config_path = vqgan_config_path
+            config_path = Path(vqgan_config_path)
+            model_path = Path(vqgan_model_path)
 
-        config = OmegaConf.load(config_path)
-
-        model = instantiate_from_config(config["model"])
-
-        state = torch.load(model_path, map_location="cpu")["state_dict"]
-        model.load_state_dict(state, strict=False)
+        with accelerator.local_main_process_first():
+            config: DictConfig = OmegaConf.load(config_path)
+            model: VQModel = instantiate_from_config(config["model"])
+            state = torch.load(model_path, map_location="cpu")["state_dict"]
+            model.load_state_dict(state, strict=False)
 
         print(f"Loaded VQGAN from {model_path} and {config_path}")
-
         self.model = model
-
         # f as used in https://github.com/CompVis/taming-transformers#overview-of-pretrained-models
-        f = (
-            config.model.params.ddconfig.resolution
-            / config.model.params.ddconfig.attn_resolutions[0]
-        )
 
+        f = config.model.params.ddconfig.resolution / config.model.params.ddconfig.attn_resolutions[0]
         self.num_layers = int(log(f) / log(2))
         self.channels = 3
         self.image_size = 256
@@ -157,9 +149,7 @@ class VQGanVAETaming(nn.Module):
         fmap, loss, (_, _, min_encodings_indices) = self.model.encode(im_seq)
 
         b, _, h, w = fmap.shape
-        min_encodings_indices = rearrange(
-            min_encodings_indices, "(b h w) 1 -> b h w", h=h, w=w, b=b
-        )
+        min_encodings_indices = rearrange(min_encodings_indices, "(b h w) 1 -> b h w", h=h, w=w, b=b)
         return fmap, min_encodings_indices, loss
 
     def decode_ids(self, ids):
@@ -173,4 +163,4 @@ class VQGanVAETaming(nn.Module):
         return vae_copy.to(device)
 
     def forward(self, img):
-        raise NotImplemented
+        raise NotImplementedError("Forward not implemented for Taming VAE")

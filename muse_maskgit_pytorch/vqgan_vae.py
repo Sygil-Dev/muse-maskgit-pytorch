@@ -1,41 +1,34 @@
-from pathlib import Path
 import copy
-import math
-from math import sqrt
 from functools import partial, wraps
+from pathlib import Path
+from typing import List
 
-from vector_quantize_pytorch import VectorQuantize as VQ
-
-import torch
-from torch import nn, einsum
-import torch.nn.functional as F
-from torch.autograd import grad as torch_grad
-
-import torchvision
-
-from einops import rearrange, reduce, repeat
-from einops.layers.torch import Rearrange
 import timm
-from diffusers.models.vae import Encoder, Decoder
+import torch
+import torch.nn.functional as F
+import torchvision
+from accelerate import Accelerator
+from beartype import beartype
+from einops import rearrange, repeat
+from torch import nn, Tensor
+from torch.autograd import grad as torch_grad
+from vector_quantize_pytorch import VectorQuantize as VQ
 
 # constants
 
 MList = nn.ModuleList
 
+
 # helper functions
-
-
 def exists(val):
     return val is not None
 
 
 def default(val, d):
-    return val if exists(val) else d
+    return val if val is not None else d
 
 
 # decorators
-
-
 def eval_decorator(fn):
     def inner(model, *args, **kwargs):
         was_training = model.training
@@ -66,8 +59,6 @@ def remove_vgg(fn):
 
 
 # keyword argument helpers
-
-
 def pick_and_pop(keys, d):
     values = list(map(lambda key: d.pop(key), keys))
     return dict(zip(keys, values))
@@ -91,9 +82,7 @@ def group_by_key_prefix(prefix, d):
 
 
 def groupby_prefix_and_trim(prefix, d):
-    kwargs_with_prefix, kwargs = group_dict_by_key(
-        partial(string_begins_with, prefix), d
-    )
+    kwargs_with_prefix, kwargs = group_dict_by_key(partial(string_begins_with, prefix), d)
     kwargs_without_prefix = dict(
         map(lambda x: (x[0][len(prefix) :], x[1]), tuple(kwargs_with_prefix.items()))
     )
@@ -101,15 +90,11 @@ def groupby_prefix_and_trim(prefix, d):
 
 
 # tensor helper functions
-
-
 def log(t, eps=1e-10):
     return torch.log(t + eps)
 
 
 def gradient_penalty(images, output, weight=10):
-    batch_size = images.shape[0]
-
     gradients = torch_grad(
         outputs=output,
         inputs=images,
@@ -123,8 +108,8 @@ def gradient_penalty(images, output, weight=10):
     return weight * ((gradients.norm(2, dim=1) - 1) ** 2).mean()
 
 
-def leaky_relu(p=0.1):
-    return nn.LeakyReLU(0.1)
+def leaky_relu(p: float = 0.1):
+    return nn.LeakyReLU(p)
 
 
 def safe_div(numer, denom, eps=1e-8):
@@ -132,8 +117,6 @@ def safe_div(numer, denom, eps=1e-8):
 
 
 # gan losses
-
-
 def hinge_discr_loss(fake, real):
     return (F.relu(1 + fake) + F.relu(1 - real)).mean()
 
@@ -160,8 +143,6 @@ def grad_layer_wrt_loss(loss, layer):
 
 
 # vqgan vae
-
-
 class LayerNormChan(nn.Module):
     def __init__(self, dim, eps=1e-5):
         super().__init__()
@@ -175,8 +156,6 @@ class LayerNormChan(nn.Module):
 
 
 # discriminator
-
-
 class Discriminator(nn.Module):
     def __init__(self, dims, channels=3, groups=16, init_kernel_size=5):
         super().__init__()
@@ -185,12 +164,7 @@ class Discriminator(nn.Module):
         self.layers = MList(
             [
                 nn.Sequential(
-                    nn.Conv2d(
-                        channels,
-                        dims[0],
-                        init_kernel_size,
-                        padding=init_kernel_size // 2,
-                    ),
+                    nn.Conv2d(channels, dims[0], init_kernel_size, padding=init_kernel_size // 2),
                     leaky_relu(),
                 )
             ]
@@ -206,24 +180,20 @@ class Discriminator(nn.Module):
             )
 
         dim = dims[-1]
-        self.to_logits = nn.Sequential(  # return 5 x 5, for PatchGAN-esque training
-            nn.Conv2d(dim, dim, 1), leaky_relu(), nn.Conv2d(dim, 1, 4)
-        )
+        # return 5 x 5, for PatchGAN-esque training
+        self.to_logits = nn.Sequential(nn.Conv2d(dim, dim, 1), leaky_relu(), nn.Conv2d(dim, 1, 4))
 
     def forward(self, x):
         for net in self.layers:
             x = net(x)
-
         return self.to_logits(x)
 
 
 # resnet encoder / decoder
-
-
 class ResnetEncDec(nn.Module):
     def __init__(
         self,
-        dim,
+        dim: int,
         *,
         channels=3,
         layers=4,
@@ -238,64 +208,39 @@ class ResnetEncDec(nn.Module):
         ), f"dimension {dim} must be divisible by {resnet_groups} (groups for the groupnorm)"
 
         self.layers = layers
-
         self.encoders = MList([])
         self.decoders = MList([])
 
-        layer_mults = default(layer_mults, list(map(lambda t: 2**t, range(layers))))
-        assert (
-            len(layer_mults) == layers
-        ), "layer multipliers must be equal to designated number of layers"
+        layer_mults = default(layer_mults, [2**x for x in range(layers)])
+        if len(layer_mults) != layers:
+            raise ValueError("layer multipliers must be equal to designated number of layers")
 
         layer_dims = [dim * mult for mult in layer_mults]
         dims = (dim, *layer_dims)
 
         self.encoded_dim = dims[-1]
-
         dim_pairs = zip(dims[:-1], dims[1:])
-
-        append = lambda arr, t: arr.append(t)
-        prepend = lambda arr, t: arr.insert(0, t)
 
         if not isinstance(num_resnet_blocks, tuple):
             num_resnet_blocks = (*((0,) * (layers - 1)), num_resnet_blocks)
+        if len(num_resnet_blocks) != layers:
+            raise ValueError("number of resnet blocks must be equal to number of layers")
 
-        assert (
-            len(num_resnet_blocks) == layers
-        ), "number of resnet blocks config must be equal to number of layers"
-
-        for layer_index, (dim_in, dim_out), layer_num_resnet_blocks in zip(
-            range(layers), dim_pairs, num_resnet_blocks
-        ):
-            append(
-                self.encoders,
-                nn.Sequential(
-                    nn.Conv2d(dim_in, dim_out, 4, stride=2, padding=1), leaky_relu()
-                ),
+        for _, (dim_in, dim_out), layer_num_resnet_blocks in zip(range(layers), dim_pairs, num_resnet_blocks):
+            self.encoders.append(
+                nn.Sequential(nn.Conv2d(dim_in, dim_out, 4, stride=2, padding=1), leaky_relu())
             )
-            prepend(
-                self.decoders,
-                nn.Sequential(
-                    nn.ConvTranspose2d(dim_out, dim_in, 4, 2, 1), leaky_relu()
-                ),
-            )
-
+            self.decoders.insert(0, nn.Sequential(nn.ConvTranspose2d(dim_out, dim_in, 4, 2, 1), leaky_relu()))
             for _ in range(layer_num_resnet_blocks):
-                append(self.encoders, ResBlock(dim_out, groups=resnet_groups))
-                prepend(self.decoders, GLUResBlock(dim_out, groups=resnet_groups))
+                self.encoders.append(ResBlock(dim_out, groups=resnet_groups))
+                self.decoders.insert(0, GLUResBlock(dim_out, groups=resnet_groups))
 
-        prepend(
-            self.encoders,
-            nn.Conv2d(
-                channels,
-                dim,
-                first_conv_kernel_size,
-                padding=first_conv_kernel_size // 2,
-            ),
+        self.encoders.insert(
+            0, nn.Conv2d(channels, dim, first_conv_kernel_size, padding=first_conv_kernel_size // 2)
         )
-        append(self.decoders, nn.Conv2d(dim, channels, 1))
+        self.decoders.append(nn.Conv2d(dim, channels, 1))
 
-    def get_encoded_fmap_size(self, image_size):
+    def get_encoded_fmap_size(self, image_size: int):
         return image_size // (2**self.layers)
 
     @property
@@ -386,13 +331,13 @@ class WaveletTransformerEncDec(nn.Module):
 
 
 # main vqgan-vae classes
-
-
+@beartype
 class VQGanVAE(nn.Module):
     def __init__(
         self,
         *,
-        dim,
+        dim: int,
+        accelerator: Accelerator = None,
         channels=3,
         layers=4,
         l2_recon_loss=False,
@@ -406,22 +351,18 @@ class VQGanVAE(nn.Module):
         vq_use_cosine_sim=True,
         use_vgg_and_gan=True,
         discr_layers=4,
-        timm_backend=None,
         **kwargs,
     ):
         super().__init__()
         vq_kwargs, kwargs = groupby_prefix_and_trim("vq_", kwargs)
         encdec_kwargs, kwargs = groupby_prefix_and_trim("encdec_", kwargs)
 
+        self.accelerator = accelerator
         self.channels = channels
         self.codebook_size = vq_codebook_size
         self.dim_divisor = 2**layers
 
-        enc_dec_klass = ResnetEncDec
-
-        self.enc_dec = enc_dec_klass(
-            dim=dim, channels=channels, layers=layers, **encdec_kwargs
-        )
+        self.enc_dec = ResnetEncDec(dim=dim, channels=channels, layers=layers, **encdec_kwargs)
 
         self.vq = VQ(
             dim=self.enc_dec.encoded_dim,
@@ -436,37 +377,31 @@ class VQGanVAE(nn.Module):
         )
 
         # reconstruction loss
-
         self.recon_loss_fn = F.mse_loss if l2_recon_loss else F.l1_loss
 
         # turn off GAN and perceptual loss if grayscale
-
         self._vgg = None
         self.discr = None
         self.use_vgg_and_gan = use_vgg_and_gan
-
         if not use_vgg_and_gan:
             return
 
         # preceptual loss
-
         if exists(vgg):
             self._vgg = vgg
 
         # gan related losses
-
         layer_mults = list(map(lambda t: 2**t, range(discr_layers)))
         layer_dims = [dim * mult for mult in layer_mults]
         dims = (dim, *layer_dims)
 
         self.discr = Discriminator(dims=dims, channels=channels)
-
         self.discr_loss = hinge_discr_loss if use_hinge_loss else bce_discr_loss
         self.gen_loss = hinge_gen_loss if use_hinge_loss else bce_gen_loss
 
     @property
     def device(self):
-        return next(self.parameters()).device
+        return self.accelerator.device if self.accelerator else next(self.parameters()).device
 
     @property
     def vgg(self):
@@ -505,7 +440,10 @@ class VQGanVAE(nn.Module):
         return super().load_state_dict(*args, **kwargs)
 
     def save(self, path):
-        torch.save(self.state_dict(), path)
+        if self.accelerator is not None:
+            self.accelerator.save(self.state_dict(), path)
+        else:
+            torch.save(self.state_dict(), path)
 
     def load(self, path, map=None):
         path = Path(path)
@@ -542,9 +480,7 @@ class VQGanVAE(nn.Module):
         batch, channels, height, width, device = *img.shape, img.device
 
         for dim_name, size in (("height", height), ("width", width)):
-            assert (
-                size % self.dim_divisor
-            ) == 0, f"{dim_name} must be divisible by {self.dim_divisor}"
+            assert (size % self.dim_divisor) == 0, f"{dim_name} must be divisible by {self.dim_divisor}"
 
         assert (
             channels == self.channels
@@ -619,13 +555,9 @@ class VQGanVAE(nn.Module):
         last_dec_layer = self.enc_dec.last_dec_layer
 
         norm_grad_wrt_gen_loss = grad_layer_wrt_loss(gen_loss, last_dec_layer).norm(p=2)
-        norm_grad_wrt_perceptual_loss = grad_layer_wrt_loss(
-            perceptual_loss, last_dec_layer
-        ).norm(p=2)
+        norm_grad_wrt_perceptual_loss = grad_layer_wrt_loss(perceptual_loss, last_dec_layer).norm(p=2)
 
-        adaptive_weight = safe_div(
-            norm_grad_wrt_perceptual_loss, norm_grad_wrt_gen_loss
-        )
+        adaptive_weight = safe_div(norm_grad_wrt_perceptual_loss, norm_grad_wrt_gen_loss)
         adaptive_weight.clamp_(max=1e4)
 
         # combine losses
