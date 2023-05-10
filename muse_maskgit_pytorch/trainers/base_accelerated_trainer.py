@@ -134,7 +134,7 @@ def get_optimizer(
             if use_8bit_adam and Lion8bit is not None
             else Lion(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
         )
-    elif optimizer == "Adafactor
+    elif optimizer == "Adafactor":
         return Adafactor(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
     else:
         raise NotImplementedError(f"{optimizer} optimizer not supported yet.")
