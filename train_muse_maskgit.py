@@ -285,8 +285,8 @@ parser.add_argument(
 parser.add_argument(
     "--optimizer",
     type=str,
-    default="Lion",
-    help="Optimizer to use. Choose between: ['Adam', 'AdamW', 'Lion']. Default: Lion",
+    default="Adafactor",
+    help="Optimizer to use. Choose between: ['Adam', 'AdamW', 'Lion', 'Adafactor']. Default: Adafactor (paper recommended)",
 )
 parser.add_argument(
     "--weight_decay",
