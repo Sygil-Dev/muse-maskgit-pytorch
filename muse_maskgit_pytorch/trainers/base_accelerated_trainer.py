@@ -135,7 +135,7 @@ def get_optimizer(
             else Lion(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
         )
     elif optimizer == "Adafactor":
-        return Adafactor(parameters, lr=lr, weight_decay=weight_decay, relative_step=False, **optimizer_kwargs)
+        return Adafactor(parameters, lr=lr, weight_decay=weight_decay, relative_step=False, scale_parameter=False,  **optimizer_kwargs)
     else:
         raise NotImplementedError(f"{optimizer} optimizer not supported yet.")
 
