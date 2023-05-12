@@ -126,9 +126,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             for imgs, input_ids, attn_mask in self.dl:
                 train_loss = 0.0
                 steps = int(self.steps.item())
-                text_embeds = t5_encode_text_from_encoded(
-                    input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
-                )
+
+                with torch.no_grad():
+                    text_embeds = t5_encode_text_from_encoded(
+                        input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
+                    )
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)
