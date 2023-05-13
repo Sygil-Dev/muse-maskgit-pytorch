@@ -109,7 +109,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         if self.accelerator.is_main_process:
             save_image(images, save_file, "png")
-            self.log_validation_images([Image.open(save_file)], step, ["\n\n".join(validation_prompts)])
+            self.log_validation_images([Image.open(save_file)], step, ["\n---\n".join(validation_prompts)])
         return save_file
 
     def train(self):
