@@ -36,6 +36,7 @@ setup(
         "tqdm",
         "vector-quantize-pytorch>=0.10.14",
         "lion-pytorch",
+        "memory-efficient-attention-pytorch=0.1.2"
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
