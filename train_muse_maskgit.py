@@ -289,11 +289,6 @@ parser.add_argument(
     help="Optimizer to use. Choose between: ['Adam', 'AdamW', 'Lion', 'Adafactor']. Default: Adafactor (paper recommended)",
 )
 parser.add_argument(
-    "--memory_efficient",
-    action="store_true",
-    help="whether to use memory efficient attention instead of standard attention",
-)
-parser.add_argument(
     "--weight_decay",
     type=float,
     default=0.0,
@@ -369,7 +364,6 @@ class Arguments:
     taming_model_path: Optional[str] = None
     taming_config_path: Optional[str] = None
     optimizer: str = "Lion"
-    memory_efficient: bool = False
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
     skip_arrow: bool = False
@@ -478,7 +472,6 @@ def main():
         # name of your T5 model configuration
         t5_name=args.t5_name,
         cache_path=args.cache_path,
-        memory_efficient=args.memory_efficient
     )
     # (2) pass your trained VAE and the base transformer to MaskGit
     maskgit = MaskGit(

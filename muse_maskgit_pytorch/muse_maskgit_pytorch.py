@@ -15,7 +15,6 @@ from rich import inspect
 from torch import einsum, nn, isnan
 from tqdm.auto import tqdm
 from transformers import T5EncoderModel, T5Tokenizer
-from memory_efficient_attention_pytorch import Attention as MemAttention
 
 from .t5 import DEFAULT_T5_NAME, get_encoded_dim, get_model_and_tokenizer, t5_encode_text
 from .vqgan_vae import VQGanVAE
@@ -182,35 +181,6 @@ class TransformerBlocks(nn.Module):
         return self.norm(x)
 
 
-class MemoryEfficientTransformerBlocks(nn.Module):
-    def __init__(self, *, dim, depth, dim_head=64, heads=8, ff_mult=4):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-
-        for _ in range(depth):
-            self.layers.append(
-                nn.ModuleList(
-                    [
-                        MemAttention(dim=dim, dim_head=dim_head, heads=heads),
-                        MemAttention(dim=dim, dim_head=dim_head, heads=heads),
-                        FeedForward(dim=dim, mult=ff_mult),
-                    ]
-                )
-            )
-
-        self.norm = LayerNorm(dim)
-
-    def forward(self, x, context=None, mask=None):
-        for attn, cross_attn, ff in self.layers:
-            x = attn(x) + x
-
-            x = cross_attn(x, context=context, mask=mask) + x
-
-            x = ff(x) + x
-
-        return self.norm(x)
-
-
 # transformer - it's all we need
 class Transformer(nn.Module):
     def __init__(
@@ -224,7 +194,6 @@ class Transformer(nn.Module):
         self_cond: bool = False,
         add_mask_id: bool = False,
         cache_path: PathLike = None,
-        memory_efficient: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -235,12 +204,8 @@ class Transformer(nn.Module):
         self.token_emb = nn.Embedding(num_tokens + int(add_mask_id), dim)
         self.pos_emb = nn.Embedding(seq_len, dim)
         self.seq_len = seq_len
-        self.memory_efficient = memory_efficient
 
-        if memory_efficient:
-            self.transformer_blocks = MemoryEfficientTransformerBlocks(dim=dim, **kwargs)
-        else:
-            self.transformer_blocks = TransformerBlocks(dim=dim, **kwargs)
+        self.transformer_blocks = TransformerBlocks(dim=dim, **kwargs)
         self.norm = LayerNorm(dim)
 
         self.dim_out = default(dim_out, num_tokens)
@@ -350,10 +315,7 @@ class Transformer(nn.Module):
                 self_cond_embed = torch.zeros_like(x)
             x = x + self.self_cond_to_init_embed(self_cond_embed)
 
-        if self.memory_efficient:
-            embed = self.transformer_blocks(x, context=context, mask=context_mask)
-        else:
-            embed = self.transformer_blocks(x, context=context, context_mask=context_mask)
+        embed = self.transformer_blocks(x, context=context, context_mask=context_mask)
 
         logits = self.to_logits(embed)
 
