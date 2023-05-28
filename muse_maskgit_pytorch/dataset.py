@@ -128,10 +128,9 @@ class LocalTextImageDataset(Dataset):
                 continue
             caption_path = image_path.with_suffix(".txt")
             if os.path.exists(str(caption_path)):
-                captions = caption_path.read_text(encoding="utf-8").split("\n")
-                captions = list(filter(lambda t: len(t) > 0, captions))
+                captions = str(caption_path)
             else:
-                captions = []
+                captions = ""
             self.images.append(image_path)
             self.caption_pair.append(captions)
 
@@ -153,15 +152,11 @@ class LocalTextImageDataset(Dataset):
         image = self.images[index]
         image = pImage.open(image)
         descriptions = self.caption_pair[index]
-        if descriptions is None:
+        if descriptions is None or descriptions == "":
             text = ""
-        elif isinstance(descriptions, list):
-            if len(descriptions) == 0:
-                text = ""
-            else:
-                text = random.choice(descriptions)
         else:
-            text = descriptions
+            text = Path(descriptions).read_text(encoding="utf-8").split("\n")
+
         # max length from the paper
         encoded = self.tokenizer.batch_encode_plus(
             [str(text)],
