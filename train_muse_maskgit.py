@@ -421,13 +421,10 @@ def main():
                 split="train",
             )
             if args.streaming:
-                if dataset.info.dataset_size is None:
-                    print("Dataset doesn't support streaming, disabling streaming")
-                    args.streaming = False
-                    if args.cache_path:
-                        dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
-                    else:
-                        dataset = load_dataset(args.dataset_name)["train"]
+                if args.cache_path:
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                else:
+                    dataset = load_dataset(args.dataset_name)["train"]
         else:
             raise ValueError("You must pass either train_data_dir or dataset_name (but not both)")
 
@@ -525,7 +522,7 @@ def main():
     # Create the dataloaders
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
         dataset,
-        args.valid_frac,
+        args.valid_frac if not args.streaming else 0,
         args.seed,
         args.batch_size,
     )
