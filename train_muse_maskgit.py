@@ -35,6 +35,7 @@ from muse_maskgit_pytorch.dataset import (
     LocalTextImageDataset,
     get_dataset_from_dataroot,
     split_dataset_into_dataloaders,
+    URLTextDataset
 )
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_optimizer
 
@@ -306,6 +307,11 @@ parser.add_argument(
     help="whether to skip converting the dataset to arrow, and to directly fetch data",
 )
 parser.add_argument(
+    "--link",
+    action="store_true",
+    help="whether to load a dataset with links instead of image (image column becomes URL column)",
+)
+parser.add_argument(
     "--debug",
     action="store_true",
     help="debug logging on",
@@ -367,6 +373,7 @@ class Arguments:
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
     skip_arrow: bool = False
+    link: bool = True
     debug: bool = False
 
 
@@ -504,6 +511,19 @@ def main():
                 args.train_data_dir,
                 args.image_size,
                 tokenizer=transformer.tokenizer,
+                center_crop=False if args.no_center_crop else True,
+                flip=False if args.no_flip else True,
+            )
+        elif args.link:
+            if not args.dataset_name:
+                raise AssertionError("You can only use links in huggingface datasets")
+
+            dataset = URLTextDataset(
+                dataset,
+                args.image_size,
+                transformer.tokenizer,
+                image_column=args.image_column,
+                caption_column=args.caption_column,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
             )

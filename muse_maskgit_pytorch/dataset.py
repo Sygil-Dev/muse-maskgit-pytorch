@@ -16,6 +16,8 @@ from tqdm_loggable.auto import tqdm
 from transformers import T5Tokenizer
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
+import requests
+from io import BytesIO
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -49,8 +51,7 @@ class ImageDataset(Dataset):
         if not self.stream:
             return len(self.dataset)
         else:
-            print("Using streaming, fetching length...")
-            return int(self.dataset.info.dataset_size)
+            raise AssertionError("Streaming doesnt support grabbing dataset length")
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
@@ -82,6 +83,63 @@ class ImageTextDataset(ImageDataset):
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
+        descriptions = self.dataset[index][self.caption_column]
+        if self.caption_column is None or descriptions is None:
+            text = ""
+        elif isinstance(descriptions, list):
+            if len(descriptions) == 0:
+                text = ""
+            else:
+                text = random.choice(descriptions)
+        else:
+            text = descriptions
+        # max length from the paper
+        encoded = self.tokenizer.batch_encode_plus(
+            [str(text)],
+            return_tensors="pt",
+            padding="max_length",
+            max_length=MAX_LENGTH,
+            truncation=True,
+        )
+
+        input_ids = encoded.input_ids
+        attn_mask = encoded.attention_mask
+        return self.transform(image), input_ids[0], attn_mask[0]
+
+
+class URLTextDataset(ImageDataset):
+    def __init__(
+        self,
+        dataset,
+        image_size: int,
+        tokenizer: T5Tokenizer,
+        image_column="image",
+        caption_column="caption",
+        flip=True,
+        center_crop=True,
+    ):
+        super().__init__(
+            dataset,
+            image_size=image_size,
+            image_column=image_column,
+            flip=flip,
+            center_crop=center_crop,
+        )
+        self.caption_column: str = caption_column
+        self.tokenizer: T5Tokenizer = tokenizer
+
+    def __getitem__(self, index):
+        try:
+            image = pImage.open(BytesIO(requests.get(self.dataset[index][self.image_column]).content))
+        except ConnectionError:
+            try:
+                print("Image request failure, attempting next image")
+                index += 1
+
+                image = pImage.open(BytesIO(requests.get(self.dataset[index][self.image_column]).content))
+            except ConnectionError:
+                raise ConnectionError("Unable to request image from the Dataset")
+
         descriptions = self.dataset[index][self.caption_column]
         if self.caption_column is None or descriptions is None:
             text = ""
