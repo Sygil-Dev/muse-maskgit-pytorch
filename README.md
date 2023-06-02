@@ -251,7 +251,8 @@ accelerate launch train_muse_maskgit.py --dataset_name="cifar10" --taming_model_
 - [x] add optional self-conditioning on embeddings
 - [x] combine with token critic paper, already implemented at <a href="https://github.com/lucidrains/phenaki-pytorch">Phenaki</a>
 
-- [ ] hook up accelerate training code for maskgit
+- [x] hook up accelerate training code for maskgit
+- [ ] train a base model
 
 ## Citations
 
