@@ -595,6 +595,8 @@ def main():
                         break
                 if current_step == 0:
                     accelerator.print("No step found for the MaskGit model.")
+            else:
+                current_step = 0
         else:
             accelerator.print("Initialized new empty MaskGit model.")
             current_step = 0
