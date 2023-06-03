@@ -1,0 +1,21 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=61.0.0",
+  "wheel",
+]
+
+[tool.setuptools_scm]
+write_to = "muse_maskgit_pytorch/_version.py"
+
+[tool.black]
+line-length = 110
+target-version = ['py38', 'py39', 'py310']
+
+[tool.ruff]
+line-length = 110
+target-version = 'py38'
+
+[tool.ruff.isort]
+combine-as-imports = true
+force-wrap-aliases = true
