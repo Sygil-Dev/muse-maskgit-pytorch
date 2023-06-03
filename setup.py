@@ -33,6 +33,7 @@ setup(
         "taming-transformers @ git+https://github.com/neggles/taming-transformers.git@v0.0.2",
         "transformers",
         "torchvision",
+        "torch_optimizer",
         "tqdm",
         "vector-quantize-pytorch>=0.10.14",
         "lion-pytorch",

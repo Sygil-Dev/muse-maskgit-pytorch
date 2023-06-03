@@ -31,6 +31,7 @@ class ImageDataset(Dataset):
         flip=True,
         center_crop=True,
         stream=False,
+        using_taming=False
     ):
         super().__init__()
         self.dataset = dataset
@@ -46,6 +47,7 @@ class ImageDataset(Dataset):
             transform_list.append(T.CenterCrop(image_size))
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
+        self.using_taming = using_taming
 
     def __len__(self):
         if not self.stream:
@@ -55,7 +57,10 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, index):
         image = self.dataset[index][self.image_column]
-        return self.transform(image) - 0.5
+        if self.using_taming:
+            return self.transform(image) - 0.5
+        else:
+            return self.transform(image)
 
 
 class ImageTextDataset(ImageDataset):
@@ -69,6 +74,7 @@ class ImageTextDataset(ImageDataset):
         flip=True,
         center_crop=True,
         stream=False,
+        using_taming=False
     ):
         super().__init__(
             dataset,
@@ -77,6 +83,7 @@ class ImageTextDataset(ImageDataset):
             flip=flip,
             center_crop=center_crop,
             stream=stream,
+            using_taming=using_taming
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
@@ -104,7 +111,11 @@ class ImageTextDataset(ImageDataset):
 
         input_ids = encoded.input_ids
         attn_mask = encoded.attention_mask
-        return self.transform(image), input_ids[0], attn_mask[0]
+
+        if self.using_taming:
+            return self.transform(image) - 0.5, input_ids[0], attn_mask[0]
+        else:
+            return self.transform(image), input_ids[0], attn_mask[0]
 
 
 class URLTextDataset(ImageDataset):
@@ -117,6 +128,7 @@ class URLTextDataset(ImageDataset):
         caption_column="caption",
         flip=True,
         center_crop=True,
+        using_taming=True
     ):
         super().__init__(
             dataset,
@@ -124,6 +136,7 @@ class URLTextDataset(ImageDataset):
             image_column=image_column,
             flip=flip,
             center_crop=center_crop,
+            using_taming=using_taming
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
@@ -161,13 +174,17 @@ class URLTextDataset(ImageDataset):
 
         input_ids = encoded.input_ids
         attn_mask = encoded.attention_mask
-        return self.transform(image), input_ids[0], attn_mask[0]
+        if self.using_taming:
+            return self.transform(image) - 0.5, input_ids[0], attn_mask[0]
+        else:
+            return self.transform(image), input_ids[0], attn_mask[0]
 
 
 class LocalTextImageDataset(Dataset):
-    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True):
+    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False):
         super().__init__()
         self.tokenizer = tokenizer
+        self.using_taming = using_taming
 
         print("Building dataset...")
 
@@ -226,7 +243,10 @@ class LocalTextImageDataset(Dataset):
 
         input_ids = encoded.input_ids
         attn_mask = encoded.attention_mask
-        return self.transform(image), input_ids[0], attn_mask[0]
+        if self.using_taming:
+            return self.transform(image) - 0.5, input_ids[0], attn_mask[0]
+        else:
+            return self.transform(image), input_ids[0], attn_mask[0]
 
 
 def get_directory_size(path):

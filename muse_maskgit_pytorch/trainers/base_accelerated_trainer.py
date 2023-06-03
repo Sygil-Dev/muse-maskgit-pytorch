@@ -11,6 +11,8 @@ from datasets import Dataset
 from lion_pytorch import Lion
 from torch import nn
 from torch.optim import Adam, AdamW, Optimizer
+from torch_optimizer import AdaBound, AdaMod, AccSGD, AdamP, AggMo, DiffGrad, \
+     Lamb, NovoGrad, PID, QHAdam, QHM, RAdam, SGDP, SGDW, Shampoo, SWATS, Yogi
 from transformers.optimization import Adafactor
 from torch.utils.data import DataLoader, random_split
 
@@ -136,6 +138,40 @@ def get_optimizer(
         )
     elif optimizer == "Adafactor":
         return Adafactor(parameters, lr=lr, weight_decay=weight_decay, relative_step=False, scale_parameter=False,  **optimizer_kwargs)
+    elif optimizer == "AccSGD":
+        return AccSGD(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "AdaBound":
+        return AdaBound(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "AdaMod":
+        return AdaMod(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "AdamP":
+        return AdamP(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "AggMo":
+        return AggMo(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "DiffGrad":
+        return DiffGrad(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "Lamb":
+        return Lamb(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "NovoGrad":
+        return NovoGrad(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "PID":
+        return PID(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "QHAdam":
+        return QHAdam(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "QHM":
+        return QHM(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "RAdam":
+        return RAdam(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "SGDP":
+        return SGDP(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "SGDW":
+        return SGDW(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "Shampoo":
+        return Shampoo(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "SWATS":
+        return SWATS(parameters, lr=lr, weight_decay=weight_decay)
+    elif optimizer == "Yogi":
+        return Yogi(parameters, lr=lr, weight_decay=weight_decay)
     else:
         raise NotImplementedError(f"{optimizer} optimizer not supported yet.")
 

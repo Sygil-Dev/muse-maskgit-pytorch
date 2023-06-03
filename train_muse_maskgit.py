@@ -14,6 +14,10 @@ from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
 from torch.optim import Optimizer
 
+import os
+import glob
+import re
+
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
@@ -287,7 +291,10 @@ parser.add_argument(
     "--optimizer",
     type=str,
     default="Adafactor",
-    help="Optimizer to use. Choose between: ['Adam', 'AdamW', 'Lion', 'Adafactor']. Default: Adafactor (paper recommended)",
+    help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion', 'Adafactor', "
+         "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
+         "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
+         "'SWATS', 'Yogi']. Default: Lion",
 )
 parser.add_argument(
     "--weight_decay",
@@ -311,6 +318,11 @@ parser.add_argument(
     action="store_true",
     help="whether to load a dataset with links instead of image (image column becomes URL column)",
 )
+parser.add_argument(
+            "--latest_checkpoint",
+            action="store_true",
+            help="Automatically find and use the latest checkpoint in the folder.",
+        )
 parser.add_argument(
     "--debug",
     action="store_true",
@@ -374,6 +386,7 @@ class Arguments:
     cache_path: Optional[str] = None
     skip_arrow: bool = False
     link: bool = True
+    latest_checkpoint: bool = False
     debug: bool = False
 
 
@@ -438,13 +451,54 @@ def main():
     # Load the VAE
     with accelerator.main_process_first():
         if args.vae_path is not None:
+            load = True
             accelerator.print(f"Using Muse VQGanVAE, loading from {args.vae_path}")
             vae = VQGanVAE(
                 dim=args.dim,
                 vq_codebook_size=args.vq_codebook_size,
                 accelerator=accelerator,
             )
-            vae.load(args.vae_path, map="cpu")
+
+            if args.latest_checkpoint:
+                accelerator.print("Finding latest checkpoint...")
+                orig_vae_path = args.vae_path
+
+                if os.path.isfile(args.vae_path) or '.pt' in args.vae_path:
+                    # If args.vae_path is a file, split it into directory and filename
+                    args.vae_path, _ = os.path.split(args.vae_path)
+
+                checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
+                if checkpoint_files:
+                    latest_checkpoint_file = max(checkpoint_files,
+                                                 key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+
+                    # Check if latest checkpoint is empty or unreadable
+                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                        accelerator.print(
+                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        if len(checkpoint_files) > 1:
+                            # Use the second last checkpoint as a fallback
+                            latest_checkpoint_file = max(checkpoint_files[:-1],
+                                                         key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                            accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                        else:
+                            accelerator.print("No usable checkpoint found.")
+                            load = False
+                    elif latest_checkpoint_file != orig_vae_path:
+                        accelerator.print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
+                    else:
+                        accelerator.print("Using checkpoint specified in vae_path: ", orig_vae_path)
+
+                    args.vae_path = latest_checkpoint_file
+                else:
+                    accelerator.print("No checkpoints found in directory: ", args.vae_path)
+                    load = False
+            else:
+                accelerator.print("Resuming VAE from: ", args.vae_path)
+
+            if load:
+                vae.load(args.vae_path, map="cpu")
+
         elif args.taming_model_path is not None and args.taming_config_path is not None:
             print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
             vae = VQGanVAETaming(
@@ -490,16 +544,57 @@ def main():
     # load the maskgit transformer from disk if we have previously trained one
     with accelerator.main_process_first():
         if args.resume_path:
+            load = True
             accelerator.print(f"Resuming MaskGit from: {args.resume_path}")
-            maskgit.load(args.resume_path)
-            resume_from_parts = args.resume_path.split(".")
-            for i in range(len(resume_from_parts) - 1, -1, -1):
-                if resume_from_parts[i].isdigit():
-                    current_step = int(resume_from_parts[i])
-                    accelerator.print(f"Found step {current_step} for the MaskGit model.")
-                    break
-            if current_step == 0:
-                accelerator.print("No step found for the MaskGit model.")
+
+            if args.latest_checkpoint:
+                accelerator.print("Finding latest checkpoint...")
+                orig_vae_path = args.resume_path
+
+                if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
+                    # If args.resume_path is a file, split it into directory and filename
+                    args.resume_path, _ = os.path.split(args.resume_path)
+
+                checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
+                if checkpoint_files:
+                    latest_checkpoint_file = max(checkpoint_files,
+                                                 key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+
+                    # Check if latest checkpoint is empty or unreadable
+                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                        accelerator.print(
+                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        if len(checkpoint_files) > 1:
+                            # Use the second last checkpoint as a fallback
+                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(
+                                re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                            accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                        else:
+                            accelerator.print("No usable checkpoint found.")
+                            load = False
+                    elif latest_checkpoint_file != orig_vae_path:
+                        accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
+                    else:
+                        accelerator.print("Using checkpoint specified in resume_path: ", orig_vae_path)
+
+                    args.resume_path = latest_checkpoint_file
+                else:
+                    accelerator.print("No checkpoints found in directory: ", args.resume_path)
+                    load = False
+            else:
+                accelerator.print("Resuming MaskGit from: ", args.resume_path)
+
+            if load:
+                maskgit.load(args.resume_path)
+
+                resume_from_parts = args.resume_path.split(".")
+                for i in range(len(resume_from_parts) - 1, -1, -1):
+                    if resume_from_parts[i].isdigit():
+                        current_step = int(resume_from_parts[i])
+                        accelerator.print(f"Found step {current_step} for the MaskGit model.")
+                        break
+                if current_step == 0:
+                    accelerator.print("No step found for the MaskGit model.")
         else:
             accelerator.print("Initialized new empty MaskGit model.")
             current_step = 0
@@ -513,6 +608,7 @@ def main():
                 tokenizer=transformer.tokenizer,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
+                using_taming=False if not args.taming_model_path else True
             )
         elif args.link:
             if not args.dataset_name:
@@ -526,6 +622,7 @@ def main():
                 caption_column=args.caption_column,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
+                using_taming=False if not args.taming_model_path else True
             )
         else:
             dataset = ImageTextDataset(
@@ -537,6 +634,7 @@ def main():
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
                 stream=args.streaming,
+                using_taming=False if not args.taming_model_path else True
             )
 
     # Create the dataloaders
