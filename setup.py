@@ -35,6 +35,8 @@ setup(
         "torchvision",
         "torch_optimizer",
         "tqdm",
+        "timm",
+        "tqdm-loggable",
         "vector-quantize-pytorch>=0.10.14",
         "lion-pytorch",
     ],
