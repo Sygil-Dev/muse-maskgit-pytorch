@@ -555,10 +555,18 @@ def main():
                     # If args.resume_path is a file, split it into directory and filename
                     args.resume_path, _ = os.path.split(args.resume_path)
 
-                checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
+                if args.cond_image_size:
+                    checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit_superres.*.pt"))
+                else:
+                    checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
+
                 if checkpoint_files:
-                    latest_checkpoint_file = max(checkpoint_files,
-                                                 key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                    if args.cond_image_size:
+                        latest_checkpoint_file = max(checkpoint_files,
+                                                     key=lambda x: int(re.search(r'maskgit_superres\.(\d+)\.pt', x).group(1)))
+                    else:
+                        latest_checkpoint_file = max(checkpoint_files,
+                                                     key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
 
                     # Check if latest checkpoint is empty or unreadable
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
@@ -566,8 +574,14 @@ def main():
                             f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(
-                                re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                            if args.cond_image_size:
+                                latest_checkpoint_file = max(checkpoint_files[:-1],
+                                                             key=lambda x: int(
+                                                                 re.search(r'maskgit_superres\.(\d+)\.pt', x).group(1)))
+                            else:
+                                latest_checkpoint_file = max(checkpoint_files[:-1],
+                                                             key=lambda x: int(
+                                                                 re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
                             accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
                             accelerator.print("No usable checkpoint found.")
