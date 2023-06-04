@@ -184,9 +184,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     cond_image = None
                     if self.model.cond_image_size:
                         self.accelerator.print(
-                            "With conditional image training, we recommend keeping the validation prompts to empty strings"
+                            "With conditional image training, we set the validation prompts to empty strings"
                         )
-                        cond_image = F.interpolate(imgs[0], 256)
+                        cond_image = F.interpolate(imgs, self.model.cond_image_size, mode="nearest")
+                        self.validation_prompts = [""] * self.batch_size
 
                     self.accelerator.print(f"[S{steps:05d}]{proc_label}: Logging validation images")
                     saved_image = self.save_validation_images(
