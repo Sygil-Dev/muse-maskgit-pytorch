@@ -227,6 +227,11 @@ def parse_args():
         default=None,
         help="The path to cache huggingface models",
     )
+    parser.add_argument(
+        "--skip_arrow",
+        action="store_true",
+        help="Whether to skip saving the dataset to Arrow files",
+    )
     # Parse the argument
     return parser.parse_args()
 
@@ -256,6 +261,7 @@ def main():
             image_column=args.image_column,
             caption_column=args.caption_column,
             save_path=args.dataset_save_path,
+            save=not args.skip_arrow
         )
     elif args.dataset_name:
         if args.cache_path:
