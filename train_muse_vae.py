@@ -220,12 +220,6 @@ def parse_args():
         help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion']. Default: Lion",
     )
     parser.add_argument(
-        "--weight_decay",
-        type=float,
-        default=0.0,
-        help="Optimizer weight_decay to use. Default: 0.0",
-    )
-    parser.add_argument(
         "--cache_path",
         type=str,
         default=None,
