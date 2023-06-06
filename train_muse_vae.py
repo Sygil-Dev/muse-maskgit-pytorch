@@ -361,8 +361,17 @@ def main():
         args.num_tokens = vae.codebook_size
         args.seq_len = vae.get_encoded_fmap_size(args.image_size) ** 2
     else:
-        raise ValueError(
-            "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
+        print("Initialising empty VAE")
+        vae = VQGanVAE(
+
+            dim=args.dim,
+
+            vq_codebook_dim=args.vq_codebook_dim,
+
+            vq_codebook_size=args.vq_codebook_size,
+
+            accelerator=accelerator,
+
         )
 
     dataset = ImageDataset(
