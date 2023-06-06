@@ -194,7 +194,7 @@ class BaseAcceleratedTrainer(nn.Module):
         apply_grad_penalty_every: int = 4,
         gradient_accumulation_steps: int = 1,
         clear_previous_experiments: bool = False,
-        validation_image_scale: float = 1.0,
+        validation_image_scale: Union[int, float] = 1.0,
         only_save_last_checkpoint: bool = False,
     ):
         super().__init__()
@@ -207,7 +207,7 @@ class BaseAcceleratedTrainer(nn.Module):
 
         # training params
         self.only_save_last_checkpoint: bool = only_save_last_checkpoint
-        self.validation_image_scale: float = validation_image_scale
+        self.validation_image_scale: Union[int, float] = validation_image_scale
         self.register_buffer("steps", torch.Tensor([current_step]))
         self.num_train_steps: int = num_train_steps
         self.max_grad_norm: Optional[Union[int, float]] = max_grad_norm
