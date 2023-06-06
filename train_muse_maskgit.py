@@ -246,6 +246,11 @@ parser.add_argument(
     help="Image Size.",
 )
 parser.add_argument(
+    "--vq_codebook_dim", 
+    type=int, 
+    default=256, 
+    help="VQ Codebook dimensions.")
+parser.add_argument(
     "--cond_drop_prob",
     type=float,
     default=0.5,
@@ -374,6 +379,7 @@ class Arguments:
     save_results_every: int = 100
     save_model_every: int = 500
     vq_codebook_size: int = 256
+    vq_codebook_dim: int = 256
     cond_drop_prob: float = 0.5
     image_size: int = 256
     lr_scheduler: str = "constant"
@@ -455,6 +461,7 @@ def main():
             accelerator.print(f"Using Muse VQGanVAE, loading from {args.vae_path}")
             vae = VQGanVAE(
                 dim=args.dim,
+                vq_codebook_dim=args.vq_codebook_dim,
                 vq_codebook_size=args.vq_codebook_size,
                 accelerator=accelerator,
             )
