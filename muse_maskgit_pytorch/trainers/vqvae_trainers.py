@@ -236,7 +236,17 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             self.discr_optim.zero_grad()
 
             for _ in range(self.gradient_accumulation_steps):
-                img = next(self.dl_iter)
+                try:
+
+                    img = next(self.dl_iter)
+
+                except StopIteration:
+
+                    iterator = iter(self.dl)
+
+                    img = next(iterator)
+
+  
                 img = img.to(device)
 
                 with torch.cuda.amp.autocast():
