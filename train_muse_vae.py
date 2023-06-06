@@ -373,6 +373,8 @@ def main():
             accelerator=accelerator,
 
         )
+        
+        current_step = 0
 
     dataset = ImageDataset(
         dataset,
