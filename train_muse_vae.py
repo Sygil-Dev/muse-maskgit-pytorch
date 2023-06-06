@@ -172,6 +172,11 @@ def parse_args():
     )
     parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
     parser.add_argument(
+        "--vq_codebook_dim", 
+        type=int, 
+        default=256, 
+        help="VQ Codebook dimensions.")
+    parser.add_argument(
         "--image_size",
         type=int,
         default=256,
@@ -289,6 +294,7 @@ def main():
         accelerator.print(f"Using Muse VQGanVAE, loading from {args.resume_path}")
         vae = VQGanVAE(
             dim=args.dim,
+            vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
             accelerator=accelerator,
         )
