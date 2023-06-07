@@ -101,7 +101,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
         # optimizers
         self.optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
-        self.discr_optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
+        self.discr_optim = get_optimizer(use_8bit_adam, optimizer, discr_parameters, lr, weight_decay)
         
         self.lr_scheduler: LRScheduler = get_scheduler(
             lr_scheduler_type,
@@ -203,6 +203,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         while int(self.steps.item()) < self.num_train_steps:
             try:
                 for img in self.dl_iter:
+                    loss = 0.0
                     steps = int(self.steps.item())
 
                     apply_grad_penalty = (steps % self.apply_grad_penalty_every) == 0
@@ -234,6 +235,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     self.lr_scheduler_discr.step()
                     self.optim.step()
                     self.optim.zero_grad()
+
+                    loss = 0.0
 
                     # update discriminator
                     with torch.cuda.amp.autocast():
