@@ -289,7 +289,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         
                     self.accelerator.print(f"{steps}: saving model to {str(self.results_dir)}")
         
-                    self.steps += 1
+                self.steps += 1
         
         # Loop finished, save model
         self.accelerator.wait_for_everyone()
