@@ -71,6 +71,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         optimizer="Adam",
         weight_decay=0.0,
         use_8bit_adam=False,
+        num_cycles=1,
     ):
         super().__init__(
             dataloader,
@@ -106,6 +107,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             optimizer=self.optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
             num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_cycles=num_cycles
         )
 
         self.lr_scheduler_discr: LRScheduler = get_scheduler(
@@ -113,6 +115,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             optimizer=self.discr_optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
             num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_cycles=num_cycles
         )
 
         self.discr_max_grad_norm = discr_max_grad_norm
@@ -188,67 +191,44 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             log_imgs.append(Image.open(save_file))
         super().log_validation_images(log_imgs, steps, prompts=prompts)
 
-    def train_step(self):
+    def train(self):
+        self.steps = self.steps + 1
         device = self.device
+        
+        while self.steps < self.num_train_steps:
+            for img in self.dl:
 
-        steps = int(self.steps.item())
-        apply_grad_penalty = (steps % self.apply_grad_penalty_every) == 0
-
-        self.model.train()
-        discr = self.model.module.discr if self.is_distributed else self.model.discr
-        if self.use_ema:
-            ema_model = self.ema_model.module if self.is_distributed else self.ema_model
-
-        # logs
-
-        logs = {}
-
-        # update vae (generator)
-
-        for _ in range(self.gradient_accumulation_steps):
-            try:
-                img = next(self.dl_iter)
-            except StopIteration:
-
-                iterator = iter(self.dl)
-
-                img = next(iterator)
-            img = img.to(device)
-
-            with self.accelerator.autocast():
-                loss = self.model(img, add_gradient_penalty=apply_grad_penalty, return_loss=True)
-
-            self.accelerator.backward(loss / self.gradient_accumulation_steps)
-
-            accum_log(logs, {"Train/vae_loss": loss.item() / self.gradient_accumulation_steps})
-
-        if exists(self.max_grad_norm):
-            self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-
-        self.lr_scheduler.step()
-        self.lr_scheduler_discr.step()
-        self.optim.step()
-        self.optim.zero_grad()
-
-        # update discriminator
-
-        if exists(discr):
-            self.discr_optim.zero_grad()
-
-            for _ in range(self.gradient_accumulation_steps):
-                try:
-
-                    img = next(self.dl_iter)
-
-                except StopIteration:
-
-                    iterator = iter(self.dl)
-
-                    img = next(iterator)
-
-  
+                apply_grad_penalty = (self.steps % self.apply_grad_penalty_every) == 0
+        
+                self.model.train()
+                discr = self.model.module.discr if self.is_distributed else self.model.discr
+                if self.use_ema:
+                    ema_model = self.ema_model.module if self.is_distributed else self.ema_model
+        
+                # logs
+        
+                logs = {}
+        
+                # update vae (generator)
+        
                 img = img.to(device)
-
+    
+                with self.accelerator.autocast():
+                    loss = self.model(img, add_gradient_penalty=apply_grad_penalty, return_loss=True)
+    
+                self.accelerator.backward(loss / self.gradient_accumulation_steps)
+    
+                accum_log(logs, {"Train/vae_loss": loss.item() / self.gradient_accumulation_steps})
+    
+                if exists(self.max_grad_norm):
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        
+                self.lr_scheduler.step()
+                self.lr_scheduler_discr.step()
+                self.optim.step()
+                self.optim.zero_grad()
+        
+                # update discriminator
                 with torch.cuda.amp.autocast():
                     loss = self.model(img, return_discr_loss=True)
 
@@ -258,51 +238,67 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     logs,
                     {"Train/discr_loss": loss.item() / self.gradient_accumulation_steps},
                 )
-
-            if exists(self.discr_max_grad_norm):
-                self.accelerator.clip_grad_norm_(discr.parameters(), self.discr_max_grad_norm)
-
-            self.discr_optim.step()
-
-        # log
-
-        self.print(
-            f"{steps}: vae loss: {logs['Train/vae_loss']} - discr loss: {logs['Train/discr_loss']} - lr: {self.lr_scheduler.get_last_lr()[0]}"
-        )
-        logs["lr"] = self.lr_scheduler.get_last_lr()[0]
-        self.accelerator.log(logs, step=steps)
-
-        # update exponential moving averaged generator
-
-        if self.use_ema:
-            ema_model.update()
-
-        # sample results every so often
-
-        if (steps % self.save_results_every) == 0:
-            vaes_to_evaluate = ((self.model, str(steps)),)
-
-            if self.use_ema:
-                vaes_to_evaluate = ((ema_model.ema_model, f"{steps}.ema"),) + vaes_to_evaluate
-
-            self.log_validation_images(vaes_to_evaluate, logs, steps)
-            self.print(f"{steps}: saving to {str(self.results_dir)}")
-
-        # save model every so often
+        
+                if exists(self.discr_max_grad_norm):
+                    self.accelerator.clip_grad_norm_(discr.parameters(), self.discr_max_grad_norm)
+    
+                self.discr_optim.step()
+        
+                # log
+        
+                self.accelerator.print(
+                    f"{self.steps}: vae loss: {logs['Train/vae_loss']} - discr loss: {logs['Train/discr_loss']} - lr: {self.lr_scheduler.get_last_lr()[0]}"
+                )
+                logs["lr"] = self.lr_scheduler.get_last_lr()[0]
+                self.accelerator.log(logs, step=self.steps)
+        
+                # update exponential moving averaged generator
+        
+                if self.use_ema:
+                    ema_model.update()
+        
+                # sample results every so often
+        
+                if (self.steps % self.save_results_every) == 0:
+                    vaes_to_evaluate = ((self.model, str(self.steps)),)
+        
+                    if self.use_ema:
+                        vaes_to_evaluate = ((ema_model.ema_model, f"{self.steps}.ema"),) + vaes_to_evaluate
+        
+                    self.log_validation_images(vaes_to_evaluate, logs, self.steps)
+                    self.accelerator.print(f"{self.steps}: saving to {str(self.results_dir)}")
+        
+                # save model every so often
+                self.accelerator.wait_for_everyone()
+                if self.is_main_process and (self.steps % self.save_model_every) == 0:
+                    state_dict = self.accelerator.unwrap_model(self.model).state_dict()
+                    file_name = f"vae.{self.steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
+                    model_path = str(self.results_dir / file_name)
+                    self.accelerator.save(state_dict, model_path)
+        
+                    if self.use_ema:
+                        ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
+                        file_name = f"vae.{self.steps}.ema.pt" if not self.only_save_last_checkpoint else "vae.ema.pt"
+                        model_path = str(self.results_dir / file_name)
+                        self.accelerator.save(ema_state_dict, model_path)
+        
+                    self.accelerator.print(f"{self.steps}: saving model to {str(self.results_dir)}")
+        
+                self.steps += 1
+        
+        # Loop finished, save model
         self.accelerator.wait_for_everyone()
-        if self.is_main_process and (steps % self.save_model_every) == 0:
+        if self.is_main_process:
             state_dict = self.accelerator.unwrap_model(self.model).state_dict()
-            file_name = f"vae.{steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
+            file_name = f"vae.{self.steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
             model_path = str(self.results_dir / file_name)
             self.accelerator.save(state_dict, model_path)
 
             if self.use_ema:
                 ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
-                file_name = f"vae.{steps}.ema.pt" if not self.only_save_last_checkpoint else "vae.ema.pt"
+                file_name = f"vae.{self.steps}.ema.pt" if not self.only_save_last_checkpoint else "vae.ema.pt"
                 model_path = str(self.results_dir / file_name)
                 self.accelerator.save(ema_state_dict, model_path)
 
-            self.print(f"{steps}: saving model to {str(self.results_dir)}")
+            self.accelerator.print(f"{self.steps}: saving model to {str(self.results_dir)}")
 
-        self.steps += 1
-        return logs

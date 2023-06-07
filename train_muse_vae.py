@@ -1,4 +1,6 @@
 import argparse
+from dataclasses import dataclass
+from typing import Optional
 
 from datasets import load_dataset
 
@@ -18,230 +20,288 @@ import os
 import glob
 import re
 
+from omegaconf import OmegaConf, ValidationError
 
-def parse_args():
-    # Create the parser
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--webdataset", type=str, default=None, help="Path to webdataset if using one.")
-    parser.add_argument(
-        "--only_save_last_checkpoint",
-        action="store_true",
-        help="Only save last checkpoint.",
-    )
-    parser.add_argument(
-        "--validation_image_scale",
-        default=1,
-        type=float,
-        help="Factor by which to scale the validation images.",
-    )
-    parser.add_argument(
-        "--no_center_crop",
-        action="store_true",
-        help="Don't do center crop.",
-    )
-    parser.add_argument(
-        "--no_flip",
-        action="store_true",
-        help="Don't flip image.",
-    )
-    parser.add_argument(
-        "--dataset_save_path",
-        type=str,
-        default="dataset",
-        help="Path to save the dataset if you are making one from a directory",
-    )
-    parser.add_argument(
-        "--clear_previous_experiments",
-        action="store_true",
-        help="Whether to clear previous experiments.",
-    )
-    parser.add_argument("--max_grad_norm", type=float, default=None, help="Max gradient norm.")
-    parser.add_argument(
-        "--discr_max_grad_norm",
-        type=float,
-        default=None,
-        help="Max gradient norm for discriminator.",
-    )
-    parser.add_argument("--seed", type=int, default=42, help="Seed.")
-    parser.add_argument("--valid_frac", type=float, default=0.05, help="validation fraction.")
-    parser.add_argument("--use_ema", action="store_true", help="Whether to use ema.")
-    parser.add_argument("--ema_beta", type=float, default=0.995, help="Ema beta.")
-    parser.add_argument("--ema_update_after_step", type=int, default=1, help="Ema update after step.")
-    parser.add_argument(
-        "--ema_update_every",
-        type=int,
-        default=1,
-        help="Ema update every this number of steps.",
-    )
-    parser.add_argument(
-        "--apply_grad_penalty_every",
-        type=int,
-        default=4,
-        help="Apply gradient penalty every this number of steps.",
-    )
-    parser.add_argument(
-        "--image_column",
-        type=str,
-        default="image",
-        help="The column of the dataset containing an image.",
-    )
-    parser.add_argument(
-        "--caption_column",
-        type=str,
-        default="caption",
-        help="The column of the dataset containing a caption or a list of captions.",
-    )
-    parser.add_argument(
-        "--log_with",
-        type=str,
-        default="wandb",
-        help=(
-            'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
-            ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
-        ),
-    )
-    parser.add_argument(
-        "--mixed_precision",
-        type=str,
-        default="no",
-        choices=["no", "fp16", "bf16"],
-        help="Precision to train on.",
-    )
-    parser.add_argument(
-        "--use_8bit_adam",
-        action="store_true",
-        help="Whether to use the 8bit adam optimiser",
-    )
-    parser.add_argument(
-        "--results_dir",
-        type=str,
-        default="results",
-        help="Path to save the training samples and checkpoints",
-    )
-    parser.add_argument(
-        "--logging_dir",
-        type=str,
-        default="results/logs",
-        help="Path to log the losses and LR",
-    )
+parser = argparse.ArgumentParser()
+parser.add_argument("--webdataset", type=str, default=None, help="Path to webdataset if using one.")
+parser.add_argument(
+    "--only_save_last_checkpoint",
+    action="store_true",
+    help="Only save last checkpoint.",
+)
+parser.add_argument(
+    "--validation_image_scale",
+    default=1,
+    type=float,
+    help="Factor by which to scale the validation images.",
+)
+parser.add_argument(
+    "--no_center_crop",
+    action="store_true",
+    help="Don't do center crop.",
+)
+parser.add_argument(
+    "--no_flip",
+    action="store_true",
+    help="Don't flip image.",
+)
+parser.add_argument(
+    "--dataset_save_path",
+    type=str,
+    default="dataset",
+    help="Path to save the dataset if you are making one from a directory",
+)
+parser.add_argument(
+    "--clear_previous_experiments",
+    action="store_true",
+    help="Whether to clear previous experiments.",
+)
+parser.add_argument("--max_grad_norm", type=float, default=None, help="Max gradient norm.")
+parser.add_argument(
+    "--discr_max_grad_norm",
+    type=float,
+    default=None,
+    help="Max gradient norm for discriminator.",
+)
+parser.add_argument("--seed", type=int, default=42, help="Seed.")
+parser.add_argument("--valid_frac", type=float, default=0.05, help="validation fraction.")
+parser.add_argument("--use_ema", action="store_true", help="Whether to use ema.")
+parser.add_argument("--ema_beta", type=float, default=0.995, help="Ema beta.")
+parser.add_argument("--ema_update_after_step", type=int, default=1, help="Ema update after step.")
+parser.add_argument(
+    "--ema_update_every",
+    type=int,
+    default=1,
+    help="Ema update every this number of steps.",
+)
+parser.add_argument(
+    "--apply_grad_penalty_every",
+    type=int,
+    default=4,
+    help="Apply gradient penalty every this number of steps.",
+)
+parser.add_argument(
+    "--image_column",
+    type=str,
+    default="image",
+    help="The column of the dataset containing an image.",
+)
+parser.add_argument(
+    "--caption_column",
+    type=str,
+    default="caption",
+    help="The column of the dataset containing a caption or a list of captions.",
+)
+parser.add_argument(
+    "--log_with",
+    type=str,
+    default="wandb",
+    help=(
+        'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
+        ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
+    ),
+)
+parser.add_argument(
+    "--mixed_precision",
+    type=str,
+    default="no",
+    choices=["no", "fp16", "bf16"],
+    help="Precision to train on.",
+)
+parser.add_argument(
+    "--use_8bit_adam",
+    action="store_true",
+    help="Whether to use the 8bit adam optimiser",
+)
+parser.add_argument(
+    "--results_dir",
+    type=str,
+    default="results",
+    help="Path to save the training samples and checkpoints",
+)
+parser.add_argument(
+    "--logging_dir",
+    type=str,
+    default="results/logs",
+    help="Path to log the losses and LR",
+)
 
-    # vae_trainer args
-    parser.add_argument(
-        "--dataset_name",
-        type=str,
-        default=None,
-        help="Name of the huggingface dataset used.",
-    )
-    parser.add_argument(
-        "--streaming",
-        action="store_true",
-        help="Whether to stream the huggingface dataset",
-    )
-    parser.add_argument(
-        "--train_data_dir",
-        type=str,
-        default=None,
-        help="Dataset folder where your input images for training are.",
-    )
-    parser.add_argument(
-        "--num_train_steps",
-        type=int,
-        default=50000,
-        help="Total number of steps to train for. eg. 50000.",
-    )
-    parser.add_argument("--dim", type=int, default=128, help="Model dimension.")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch Size.")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning Rate.")
-    parser.add_argument(
-        "--gradient_accumulation_steps",
-        type=int,
-        default=1,
-        help="Gradient Accumulation.",
-    )
-    parser.add_argument(
-        "--save_results_every",
-        type=int,
-        default=100,
-        help="Save results every this number of steps.",
-    )
-    parser.add_argument(
-        "--save_model_every",
-        type=int,
-        default=500,
-        help="Save the model every this number of steps.",
-    )
-    parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
-    parser.add_argument(
-        "--vq_codebook_dim", 
-        type=int, 
-        default=256, 
-        help="VQ Codebook dimensions.")
-    parser.add_argument(
-        "--image_size",
-        type=int,
-        default=256,
-        help="Image size. You may want to start with small images, and then curriculum learn to larger ones, but because the vae is all convolution, it should generalize to 512 (as in paper) without training on it",
-    )
-    parser.add_argument(
-        "--lr_scheduler",
-        type=str,
-        default="constant",
-        help='The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"]',
-    )
-    parser.add_argument(
-        "--lr_warmup_steps",
-        type=int,
-        default=0,
-        help="Number of steps for the warmup in the lr scheduler.",
-    )
-    parser.add_argument(
-        "--resume_path",
-        type=str,
-        default=None,
-        help="Path to the last saved checkpoint. 'results/vae.steps.pt'",
-    )
-    parser.add_argument(
-        "--weight_decay",
-        type=float,
-        default=0.0,
-        help="Optimizer weight_decay to use. Default: 0.0",
-    )
-    parser.add_argument(
-        "--taming_model_path",
-        type=str,
-        default=None,
-        help="path to your trained VQGAN weights. This should be a .ckpt file. (only valid when taming option is enabled)",
-    )
-    parser.add_argument(
-        "--taming_config_path",
-        type=str,
-        default=None,
-        help="path to your trained VQGAN config. This should be a .yaml file. (only valid when taming option is enabled)",
-    )
-    parser.add_argument(
-        "--optimizer",
-        type=str,
-        default="Lion",
-        help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion']. Default: Lion",
-    )
-    parser.add_argument(
-        "--cache_path",
-        type=str,
-        default=None,
-        help="The path to cache huggingface models",
-    )
-    parser.add_argument(
-        "--skip_arrow",
-        action="store_true",
-        help="Whether to skip saving the dataset to Arrow files",
-    )
-    parser.add_argument(
-        "--latest_checkpoint",
-        action="store_true",
-        help="Whether to use the latest checkpoint",
-    )
-    # Parse the argument
-    return parser.parse_args()
+# vae_trainer args
+parser.add_argument(
+    "--dataset_name",
+    type=str,
+    default=None,
+    help="Name of the huggingface dataset used.",
+)
+parser.add_argument(
+    "--streaming",
+    action="store_true",
+    help="Whether to stream the huggingface dataset",
+)
+parser.add_argument(
+    "--train_data_dir",
+    type=str,
+    default=None,
+    help="Dataset folder where your input images for training are.",
+)
+parser.add_argument(
+    "--num_train_steps",
+    type=int,
+    default=50000,
+    help="Total number of steps to train for. eg. 50000.",
+)
+parser.add_argument("--dim", type=int, default=128, help="Model dimension.")
+parser.add_argument("--batch_size", type=int, default=1, help="Batch Size.")
+parser.add_argument("--lr", type=float, default=3e-4, help="Learning Rate.")
+parser.add_argument(
+    "--gradient_accumulation_steps",
+    type=int,
+    default=1,
+    help="Gradient Accumulation.",
+)
+parser.add_argument(
+    "--save_results_every",
+    type=int,
+    default=100,
+    help="Save results every this number of steps.",
+)
+parser.add_argument(
+    "--save_model_every",
+    type=int,
+    default=500,
+    help="Save the model every this number of steps.",
+)
+parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
+parser.add_argument(
+    "--vq_codebook_dim",
+    type=int,
+    default=256,
+    help="VQ Codebook dimensions.")
+parser.add_argument(
+    "--image_size",
+    type=int,
+    default=256,
+    help="Image size. You may want to start with small images, and then curriculum learn to larger ones, but because the vae is all convolution, it should generalize to 512 (as in paper) without training on it",
+)
+parser.add_argument(
+    "--lr_scheduler",
+    type=str,
+    default="constant",
+    help='The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"]',
+)
+parser.add_argument(
+    "--lr_warmup_steps",
+    type=int,
+    default=0,
+    help="Number of steps for the warmup in the lr scheduler.",
+)
+parser.add_argument(
+    "--num_cycles",
+    type=int,
+    default=1,
+    help="Number of cycles for the lr scheduler.",
+)
+parser.add_argument(
+    "--resume_path",
+    type=str,
+    default=None,
+    help="Path to the last saved checkpoint. 'results/vae.steps.pt'",
+)
+parser.add_argument(
+    "--weight_decay",
+    type=float,
+    default=0.0,
+    help="Optimizer weight_decay to use. Default: 0.0",
+)
+parser.add_argument(
+    "--taming_model_path",
+    type=str,
+    default=None,
+    help="path to your trained VQGAN weights. This should be a .ckpt file. (only valid when taming option is enabled)",
+)
+parser.add_argument(
+    "--taming_config_path",
+    type=str,
+    default=None,
+    help="path to your trained VQGAN config. This should be a .yaml file. (only valid when taming option is enabled)",
+)
+parser.add_argument(
+    "--optimizer",
+    type=str,
+    default="Lion",
+    help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion']. Default: Lion",
+)
+parser.add_argument(
+    "--cache_path",
+    type=str,
+    default=None,
+    help="The path to cache huggingface models",
+)
+parser.add_argument(
+    "--skip_arrow",
+    action="store_true",
+    help="Whether to skip saving the dataset to Arrow files",
+)
+parser.add_argument(
+    "--latest_checkpoint",
+    action="store_true",
+    help="Whether to use the latest checkpoint",
+)
+
+@dataclass
+class Arguments:
+    only_save_last_checkpoint: bool = False
+    validation_image_scale: float = 1.0
+    no_center_crop: bool = False
+    no_flip: bool = False
+    dataset_save_path: Optional[str] = None
+    clear_previous_experiments: bool = False
+    max_grad_norm: Optional[float] = None
+    discr_max_grad_norm: Optional[float] = None
+    num_tokens: int = 256
+    seq_len: int = 1024
+    seed: int = 42
+    valid_frac: float = 0.05
+    use_ema: bool = False
+    ema_beta: float = 0.995
+    ema_update_after_step: int = 1
+    ema_update_every: int = 1
+    apply_grad_penalty_every: int = 4
+    image_column: str = "image"
+    caption_column: str = "caption"
+    log_with: str = "wandb"
+    mixed_precision: str = "no"
+    use_8bit_adam: bool = False
+    results_dir: str = "results"
+    logging_dir: str = "results/logs"
+    resume_path: Optional[str] = None
+    dataset_name: Optional[str] = None
+    streaming: bool = False
+    train_data_dir: Optional[str] = None
+    num_train_steps: int = 50000
+    dim: int = 128
+    batch_size: int = 512
+    lr: float = 1e-4
+    gradient_accumulation_steps: int = 1
+    save_results_every: int = 100
+    save_model_every: int = 500
+    vq_codebook_size: int = 256
+    vq_codebook_dim: int = 256
+    cond_drop_prob: float = 0.5
+    image_size: int = 256
+    lr_scheduler: str = "constant"
+    lr_warmup_steps: int = 0
+    num_cycles: int = 1
+    taming_model_path: Optional[str] = None
+    taming_config_path: Optional[str] = None
+    optimizer: str = "Lion"
+    weight_decay: float = 0.0
+    cache_path: Optional[str] = None
+    skip_arrow: bool = False
+    latest_checkpoint: bool = False
+    debug: bool = False
+    config_path: Optional[str] = None
+    generate_config: bool = False
 
 
 def preprocess_webdataset(args, image):
@@ -249,7 +309,29 @@ def preprocess_webdataset(args, image):
 
 
 def main():
-    args = parse_args()
+    args = parser.parse_args(namespace=Arguments())
+
+    if args.config_path:
+        print("Using config file and ignoring CLI args")
+
+        if args.generate_config:
+            conf = OmegaConf.structured(Arguments)
+
+            # dumps to file:
+            with open(args.config_path, "w") as f:
+                OmegaConf.save(conf, f)
+
+        schema = OmegaConf.structured(Arguments)
+        try:
+            conf = OmegaConf.load(args.config_path)
+            try:
+                args = OmegaConf.merge(schema, conf)
+            except ValidationError:
+                print("Could not validate config, using default and parsed values...")
+
+        except FileNotFoundError:
+            print("Could not find config, using default and parsed values...")
+
     accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -416,6 +498,7 @@ def main():
         only_save_last_checkpoint=args.only_save_last_checkpoint,
         optimizer=args.optimizer,
         use_8bit_adam=args.use_8bit_adam,
+        num_cycles=args.num_cycles
     )
 
     trainer.train()

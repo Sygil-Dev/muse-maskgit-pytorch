@@ -18,6 +18,8 @@ import os
 import glob
 import re
 
+from omegaconf import OmegaConf, ValidationError
+
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
@@ -275,6 +277,12 @@ parser.add_argument(
     help="Number of steps for the warmup in the lr scheduler.",
 )
 parser.add_argument(
+        "--num_cycles",
+        type=int,
+        default=1,
+        help="Number of cycles for the lr scheduler.",
+    )
+parser.add_argument(
     "--resume_path",
     type=str,
     default=None,
@@ -324,14 +332,25 @@ parser.add_argument(
     help="whether to load a dataset with links instead of image (image column becomes URL column)",
 )
 parser.add_argument(
-            "--latest_checkpoint",
-            action="store_true",
-            help="Automatically find and use the latest checkpoint in the folder.",
-        )
+        "--latest_checkpoint",
+        action="store_true",
+        help="Automatically find and use the latest checkpoint in the folder.",
+    )
 parser.add_argument(
     "--debug",
     action="store_true",
     help="debug logging on",
+)
+parser.add_argument(
+    "--config_path",
+    type=str,
+    default=None,
+    help="debug logging on",
+)
+parser.add_argument(
+    "--generate_config",
+    action="store_true",
+    help="whether to generate a model config (Recommended for training later)",
 )
 
 
@@ -384,6 +403,7 @@ class Arguments:
     image_size: int = 256
     lr_scheduler: str = "constant"
     lr_warmup_steps: int = 0
+    num_cycles: int = 1
     resume_path: Optional[str] = None
     taming_model_path: Optional[str] = None
     taming_config_path: Optional[str] = None
@@ -394,10 +414,33 @@ class Arguments:
     link: bool = True
     latest_checkpoint: bool = False
     debug: bool = False
+    config_path: Optional[str] = None
+    generate_config: bool = False
 
 
 def main():
     args = parser.parse_args(namespace=Arguments())
+
+    if args.config_path:
+        print("Using config file and ignoring CLI args")
+
+        if args.generate_config:
+            conf = OmegaConf.structured(Arguments)
+
+            # dumps to file:
+            with open(args.config_path, "w") as f:
+                OmegaConf.save(conf, f)
+
+        schema = OmegaConf.structured(Arguments)
+        try:
+            conf = OmegaConf.load(args.config_path)
+            try:
+                args = OmegaConf.merge(schema, conf)
+            except ValidationError:
+                print("Could not validate config, using default and parsed values...")
+
+        except FileNotFoundError:
+            print("Could not find config, using default and parsed values...")
 
     # Set up debug logging as early as possible
     if args.debug is True:
@@ -678,6 +721,7 @@ def main():
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
         num_training_steps=args.num_train_steps * args.gradient_accumulation_steps,
+        num_cycles=args.num_cycles
     )
 
     # Prepare the model, optimizer, and dataloaders for distributed training
