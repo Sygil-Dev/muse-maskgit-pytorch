@@ -144,8 +144,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         )
         self.model.train()
 
-        self.dl_iter = iter(self.dl)
-
         self.use_ema = use_ema
 
         if use_ema:
@@ -202,7 +200,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         
         while int(self.steps.item()) < self.num_train_steps:
             try:
-                for img in self.dl_iter:
+                for img in iter(self.dl):
                     loss = 0.0
                     steps = int(self.steps.item())
 
@@ -295,7 +293,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                     self.steps += 1
             except StopIteration:
-                self.dl_iter = iter(self.dl)
+                print("Reached the end of the dataset")
         
         # Loop finished, save model
         self.accelerator.wait_for_everyone()

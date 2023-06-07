@@ -81,8 +81,6 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.optim: Optimizer = optimizer
         self.lr_scheduler: SchedulerType = scheduler
 
-        self.dl_iter = iter(self.dl)
-
         self.use_ema = use_ema
         self.validation_prompts: List[str] = validation_prompts
         if use_ema:
@@ -126,7 +124,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         # logs
         while int(self.steps.item()) < self.num_train_steps:
             try:
-                for imgs, input_ids, attn_mask in self.dl_iter:
+                for imgs, input_ids, attn_mask in iter(self.dl):
                     train_loss = 0.0
                     steps = int(self.steps.item())
 
@@ -203,7 +201,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
                     self.steps += 1
             except StopIteration:
-                self.dl_iter = iter(self.dl)
+                print("Reached the end of the dataset")
 
         # loop complete, save final model
         self.accelerator.print(f"[S{steps:05d}]{proc_label}[FINAL]: saving model to {self.results_dir}")
