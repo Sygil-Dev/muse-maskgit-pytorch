@@ -193,11 +193,11 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
     def train(self):
         self.steps = self.steps + 1
-        steps = int(self.steps.item())
         device = self.device
         
-        while steps < self.num_train_steps:
+        while int(self.steps.item()) < self.num_train_steps:
             for img in self.dl:
+                steps = int(self.steps.item())
 
                 apply_grad_penalty = (steps % self.apply_grad_penalty_every) == 0
         
@@ -288,7 +288,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                         self.accelerator.save(ema_state_dict, model_path)
         
                     self.accelerator.print(f"{steps}: saving model to {str(self.results_dir)}")
-        
+
                 self.steps += 1
         
         # Loop finished, save model

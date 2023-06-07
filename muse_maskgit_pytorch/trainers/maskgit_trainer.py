@@ -122,7 +122,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
 
         # logs
-        while self.steps < self.num_train_steps:
+        while int(self.steps.item()) < self.num_train_steps:
             for imgs, input_ids, attn_mask in self.dl:
                 train_loss = 0.0
                 steps = int(self.steps.item())
