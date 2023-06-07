@@ -331,13 +331,11 @@ def split_dataset_into_dataloaders(dataset, valid_frac=0.05, seed=42, batch_size
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        drop_last=True
     )
 
     validation_dataloader = DataLoader(
         validation_dataset,
         batch_size=batch_size,
         shuffle=False,
-        drop_last=True
     )
     return dataloader, validation_dataloader
