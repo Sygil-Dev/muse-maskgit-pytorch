@@ -237,20 +237,23 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     loss = 0.0
 
                     # update discriminator
-                    with torch.cuda.amp.autocast():
-                        loss = self.model(img, return_discr_loss=True)
 
-                    self.accelerator.backward(loss / self.gradient_accumulation_steps)
-                    if self.discr_max_grad_norm is not None and self.accelerator.sync_gradients:
-                        self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    if exists(discr):
+                        self.discr_optim.zero_grad()
 
-                    accum_log(
-                        logs,
-                        {"Train/discr_loss": loss.item() / self.gradient_accumulation_steps},
-                    )
+                        with torch.cuda.amp.autocast():
+                            loss = self.model(img, return_discr_loss=True)
 
-                    self.discr_optim.step()
-                    self.discr_optim.zero_grad()
+                        self.accelerator.backward(loss / self.gradient_accumulation_steps)
+                        if self.discr_max_grad_norm is not None and self.accelerator.sync_gradients:
+                            self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+                        accum_log(
+                            logs,
+                            {"Train/discr_loss": loss.item() / self.gradient_accumulation_steps},
+                        )
+
+                        self.discr_optim.step()
 
                     # log
 
