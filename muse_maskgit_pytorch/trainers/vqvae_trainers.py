@@ -250,6 +250,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     )
 
                     self.discr_optim.step()
+                    self.discr_optim.zero_grad()
 
                     # log
 
