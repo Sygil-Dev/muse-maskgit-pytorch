@@ -197,6 +197,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
     def train(self):
         self.steps = self.steps + 1
         device = self.device
+        self.model.train()
         
         while int(self.steps.item()) < self.num_train_steps:
             try:
@@ -206,7 +207,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                     apply_grad_penalty = (steps % self.apply_grad_penalty_every) == 0
 
-                    self.model.train()
                     discr = self.model.module.discr if self.is_distributed else self.model.discr
                     if self.use_ema:
                         ema_model = self.ema_model.module if self.is_distributed else self.ema_model
