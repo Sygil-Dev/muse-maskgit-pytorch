@@ -193,7 +193,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
     def train(self):
         self.steps = self.steps + 1
-        steps = self.steps.item()
+        steps = int(self.steps.item())
         device = self.device
         
         while steps < self.num_train_steps:
