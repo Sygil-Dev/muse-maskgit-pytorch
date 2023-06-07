@@ -456,13 +456,9 @@ def main():
     else:
         print("Initialising empty VAE")
         vae = VQGanVAE(
-
             dim=args.dim,
-
             vq_codebook_dim=args.vq_codebook_dim,
-
             vq_codebook_size=args.vq_codebook_size,
-
             accelerator=accelerator,
 
         )
