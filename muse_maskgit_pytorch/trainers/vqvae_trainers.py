@@ -217,6 +217,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     loss = self.model(img, add_gradient_penalty=apply_grad_penalty, return_loss=True)
     
                 self.accelerator.backward(loss / self.gradient_accumulation_steps)
+                if self.max_grad_norm is not None and self.accelerator.sync_gradients:
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
     
                 accum_log(logs, {"Train/vae_loss": loss.item() / self.gradient_accumulation_steps})
     
@@ -233,6 +235,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     loss = self.model(img, return_discr_loss=True)
 
                 self.accelerator.backward(loss / self.gradient_accumulation_steps)
+                if self.max_grad_norm is not None and self.accelerator.sync_gradients:
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
                 accum_log(
                     logs,
