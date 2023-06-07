@@ -425,7 +425,7 @@ def main():
         print("Using config file and ignoring CLI args")
 
         if args.generate_config:
-            conf = OmegaConf.structured(Arguments)
+            conf = OmegaConf.structured(args)
 
             # dumps to file:
             with open(args.config_path, "w") as f:
