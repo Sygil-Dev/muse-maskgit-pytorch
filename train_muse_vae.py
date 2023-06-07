@@ -152,7 +152,7 @@ parser.add_argument(
 )
 parser.add_argument("--dim", type=int, default=128, help="Model dimension.")
 parser.add_argument("--batch_size", type=int, default=1, help="Batch Size.")
-parser.add_argument("--lr", type=float, default=3e-4, help="Learning Rate.")
+parser.add_argument("--lr", type=float, default=1e-5, help="Learning Rate.")
 parser.add_argument(
     "--gradient_accumulation_steps",
     type=int,
@@ -288,7 +288,7 @@ class Arguments:
     num_train_steps: int = 50000
     dim: int = 128
     batch_size: int = 512
-    lr: float = 1e-4
+    lr: float = 1e-5
     gradient_accumulation_steps: int = 1
     save_results_every: int = 100
     save_model_every: int = 500
@@ -348,6 +348,7 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         logging_dir=args.logging_dir,
+        even_batches=True
     )
     if accelerator.is_main_process:
         accelerator.init_trackers("muse_vae", config=vars(args))

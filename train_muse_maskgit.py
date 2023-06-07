@@ -467,6 +467,7 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         logging_dir=args.logging_dir,
+        even_batches=True
     )
 
     # Get these errors out of the way early
