@@ -192,7 +192,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         super().log_validation_images(log_imgs, steps, prompts=prompts)
 
     def train(self):
-        steps = int(self.steps)
+        self.steps = self.steps + 1
+        steps = int(self.steps.item())
         device = self.device
         
         while steps < self.num_train_steps:

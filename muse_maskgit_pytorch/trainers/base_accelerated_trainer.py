@@ -198,7 +198,6 @@ class BaseAcceleratedTrainer(nn.Module):
         only_save_last_checkpoint: bool = False,
     ):
         super().__init__()
-        self.steps = 0
         self.model: nn.Module = None
         # instantiate accelerator
         self.gradient_accumulation_steps: int = gradient_accumulation_steps
