@@ -18,7 +18,7 @@ import os
 import glob
 import re
 
-from omegaconf import OmegaConf, ValidationError
+from omegaconf import OmegaConf
 
 try:
     import torch_xla
@@ -431,13 +431,16 @@ def main():
             with open(args.config_path, "w") as f:
                 OmegaConf.save(conf, f)
 
-        schema = OmegaConf.structured(Arguments)
         try:
             conf = OmegaConf.load(args.config_path)
-            try:
-                args = OmegaConf.merge(schema, conf)
-            except ValidationError:
-                print("Could not validate config, using default and parsed values...")
+            conf_keys = conf.keys()
+            args_to_convert = vars(args)
+
+            for key in conf_keys:
+                try:
+                    args_to_convert[key] = conf[key]
+                except KeyError:
+                    print(f"Error parsing config - {key}: {conf[key]} | Using default or parsed")
 
         except FileNotFoundError:
             print("Could not find config, using default and parsed values...")
