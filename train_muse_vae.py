@@ -193,7 +193,8 @@ parser.add_argument(
     "--scheduler_power",
     type=float,
     default=1.0,
-    help="The scheduler power, slows down or speeds up cycle speed",
+    help="Controls the power of the polynomial decay schedule used by the CosineScheduleWithWarmup scheduler. "
+         "It determines the rate at which the learning rate decreases during the schedule.",
 )
 parser.add_argument(
     "--lr_warmup_steps",
