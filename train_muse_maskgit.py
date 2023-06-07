@@ -271,6 +271,12 @@ parser.add_argument(
     help='The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"]',
 )
 parser.add_argument(
+    "--scheduler_power",
+    type=float,
+    default=1.0,
+    help="The scheduler power, slows down or speeds up cycle speed",
+)
+parser.add_argument(
     "--lr_warmup_steps",
     type=int,
     default=0,
@@ -402,6 +408,7 @@ class Arguments:
     cond_drop_prob: float = 0.5
     image_size: int = 256
     lr_scheduler: str = "constant"
+    scheduler_power: float = 1.0
     lr_warmup_steps: int = 0
     num_cycles: int = 1
     resume_path: Optional[str] = None
@@ -724,7 +731,8 @@ def main():
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
         num_training_steps=args.num_train_steps * args.gradient_accumulation_steps,
-        num_cycles=args.num_cycles
+        num_cycles=args.num_cycles,
+        power=args.scheduler_power,
     )
 
     # Prepare the model, optimizer, and dataloaders for distributed training

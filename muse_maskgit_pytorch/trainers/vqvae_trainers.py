@@ -72,6 +72,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         weight_decay=0.0,
         use_8bit_adam=False,
         num_cycles=1,
+        scheduler_power=1.0
     ):
         super().__init__(
             dataloader,
@@ -107,7 +108,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             optimizer=self.optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
             num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
-            num_cycles=num_cycles
+            num_cycles=num_cycles,
+            power=scheduler_power,
         )
 
         self.lr_scheduler_discr: LRScheduler = get_scheduler(
@@ -115,7 +117,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             optimizer=self.discr_optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
             num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
-            num_cycles=num_cycles
+            num_cycles=num_cycles,
+            power=scheduler_power,
         )
 
         self.discr_max_grad_norm = discr_max_grad_norm

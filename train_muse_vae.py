@@ -190,6 +190,12 @@ parser.add_argument(
     help='The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"]',
 )
 parser.add_argument(
+    "--scheduler_power",
+    type=float,
+    default=1.0,
+    help="The scheduler power, slows down or speeds up cycle speed",
+)
+parser.add_argument(
     "--lr_warmup_steps",
     type=int,
     default=0,
@@ -290,6 +296,7 @@ class Arguments:
     cond_drop_prob: float = 0.5
     image_size: int = 256
     lr_scheduler: str = "constant"
+    scheduler_power: float = 1.0
     lr_warmup_steps: int = 0
     num_cycles: int = 1
     taming_model_path: Optional[str] = None
@@ -501,7 +508,8 @@ def main():
         only_save_last_checkpoint=args.only_save_last_checkpoint,
         optimizer=args.optimizer,
         use_8bit_adam=args.use_8bit_adam,
-        num_cycles=args.num_cycles
+        num_cycles=args.num_cycles,
+        scheduler_power=args.scheduler_power
     )
 
     trainer.train()
