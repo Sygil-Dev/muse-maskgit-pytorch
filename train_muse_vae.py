@@ -347,7 +347,7 @@ def main():
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
-        logging_dir=args.logging_dir,
+        project_dir=args.logging_dir,
         even_batches=True
     )
     if accelerator.is_main_process:

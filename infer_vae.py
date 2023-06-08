@@ -154,7 +154,7 @@ def main():
     args = parse_args()
     accelerator = get_accelerator(
         mixed_precision=args.mixed_precision,
-        logging_dir=args.logging_dir,
+        project_dir=args.logging_dir,
     )
 
     # set pytorch seed for reproducibility

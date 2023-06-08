@@ -476,6 +476,7 @@ class VQGanVAE(nn.Module):
         return_discr_loss=False,
         return_recons=False,
         add_gradient_penalty=True,
+        relu_loss=True
     ):
         batch, channels, height, width, device = *img.shape, img.device
 
@@ -514,9 +515,15 @@ class VQGanVAE(nn.Module):
                 loss = discr_loss + gp
 
             if return_recons:
-                return loss, fmap
+                if relu_loss:
+                    return F.relu(loss), fmap
+                else:
+                    return loss, fmap
 
-            return loss
+            if relu_loss:
+                return F.relu(loss)
+            else:
+                return loss
 
         # reconstruction loss
 
@@ -526,9 +533,15 @@ class VQGanVAE(nn.Module):
 
         if not self.use_vgg_and_gan:
             if return_recons:
-                return recon_loss, fmap
+                if relu_loss:
+                    return F.relu(recon_loss), fmap
+                else:
+                    return recon_loss, fmap
 
-            return recon_loss
+            if relu_loss:
+                return F.relu(recon_loss)
+            else:
+                return recon_loss
 
         # perceptual loss
 
@@ -545,10 +558,14 @@ class VQGanVAE(nn.Module):
         img_vgg_feats = self.vgg(img_vgg_input)
         recon_vgg_feats = self.vgg(fmap_vgg_input)
         perceptual_loss = F.mse_loss(img_vgg_feats, recon_vgg_feats)
+        if relu_loss:
+            perceptual_loss = F.relu(perceptual_loss)
 
         # generator loss
 
         gen_loss = self.gen_loss(self.discr(fmap))
+        if relu_loss:
+            gen_loss = F.relu(gen_loss)
 
         # calculate adaptive weight
 
@@ -565,9 +582,18 @@ class VQGanVAE(nn.Module):
         # perceptual loss is loss in vgg features mse
         # commit loss is loss in quanitizing in vq mse
         # gan loss is
-        loss = recon_loss + perceptual_loss + commit_loss + adaptive_weight * gen_loss
+        if relu_loss:
+            loss = F.relu(recon_loss) + F.relu(perceptual_loss) + F.relu(commit_loss) + F.relu(adaptive_weight) * F.relu(gen_loss)
+        else:
+            loss = recon_loss + perceptual_loss + commit_loss + adaptive_weight * gen_loss
 
         if return_recons:
-            return loss, fmap
+            if relu_loss:
+                return F.relu(loss), fmap
+            else:
+                return loss, fmap
 
-        return loss
+        if relu_loss:
+            return F.relu(loss)
+        else:
+            return loss
