@@ -12,7 +12,15 @@ from PIL import Image as pImage
 from PIL import ImageFile
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms as T
-from tqdm_loggable.auto import tqdm
+
+try:
+    import torch_xla
+    import torch_xla.core.xla_model as xm
+
+    from tqdm_loggable.auto import tqdm
+except ImportError:
+    from tqdm import tqdm
+
 from transformers import T5Tokenizer
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
