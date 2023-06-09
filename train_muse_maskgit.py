@@ -426,7 +426,7 @@ class Arguments:
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
     skip_arrow: bool = False
-    link: bool = True
+    link: bool = False
     latest_checkpoint: bool = False
     debug: bool = False
     config_path: Optional[str] = None
