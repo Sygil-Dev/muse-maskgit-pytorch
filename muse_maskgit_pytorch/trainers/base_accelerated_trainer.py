@@ -2,6 +2,7 @@ from os import PathLike
 from pathlib import Path
 from shutil import rmtree
 from typing import Dict, Optional, Union
+import accelerate
 
 import numpy as np
 import torch
@@ -235,6 +236,8 @@ class BaseAcceleratedTrainer(nn.Module):
 
         self.print = self.accelerator.print
         self.log = self.accelerator.log
+
+        self.on_tpu = self.accelerator.distributed_type == accelerate.DistributedType.TPU
 
     def save(self, path):
         if not self.accelerator.is_main_process:
