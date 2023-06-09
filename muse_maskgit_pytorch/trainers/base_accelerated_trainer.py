@@ -186,6 +186,7 @@ class BaseAcceleratedTrainer(nn.Module):
         *,
         current_step: int,
         num_train_steps: int,
+        num_epochs: int = 5,
         max_grad_norm: Optional[int] = None,
         save_results_every: int = 100,
         save_model_every: int = 1000,
@@ -210,6 +211,7 @@ class BaseAcceleratedTrainer(nn.Module):
         self.validation_image_scale: Union[int, float] = validation_image_scale
         self.register_buffer("steps", torch.Tensor([current_step]))
         self.num_train_steps: int = num_train_steps
+        self.num_epochs = num_epochs
         self.max_grad_norm: Optional[Union[int, float]] = max_grad_norm
 
         self.dl = dataloader

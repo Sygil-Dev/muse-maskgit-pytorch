@@ -147,8 +147,14 @@ parser.add_argument(
 parser.add_argument(
     "--num_train_steps",
     type=int,
-    default=50000,
-    help="Total number of steps to train for. eg. 50000.",
+    default=-1,
+    help="Total number of steps to train for. eg. 50000. | Use only if you want to stop training early",
+)
+parser.add_argument(
+    "--num_epochs",
+    type=int,
+    default=5,
+    help="Total number of epochs to train for. eg. 5.",
 )
 parser.add_argument("--dim", type=int, default=128, help="Model dimension.")
 parser.add_argument("--batch_size", type=int, default=1, help="Batch Size.")
@@ -285,7 +291,8 @@ class Arguments:
     dataset_name: Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
-    num_train_steps: int = 50000
+    num_train_steps: int = -1
+    num_epochs: int = 5
     dim: int = 128
     batch_size: int = 512
     lr: float = 1e-5
@@ -507,7 +514,8 @@ def main():
         optimizer=args.optimizer,
         use_8bit_adam=args.use_8bit_adam,
         num_cycles=args.num_cycles,
-        scheduler_power=args.scheduler_power
+        scheduler_power=args.scheduler_power,
+        num_epochs=args.num_epochs
     )
 
     trainer.train()

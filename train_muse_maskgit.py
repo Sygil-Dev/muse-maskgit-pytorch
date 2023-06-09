@@ -202,8 +202,14 @@ parser.add_argument(
 parser.add_argument(
     "--num_train_steps",
     type=int,
-    default=50000,
-    help="Total number of steps to train for. eg. 50000.",
+    default=-1,
+    help="Total number of steps to train for. eg. 50000. | Use only if you want to stop training early",
+)
+parser.add_argument(
+    "--num_epochs",
+    type=int,
+    default=5,
+    help="Total number of epochs to train for. eg. 5.",
 )
 parser.add_argument(
     "--dim",
@@ -398,6 +404,7 @@ class Arguments:
     streaming: bool = False
     train_data_dir: Optional[str] = None
     num_train_steps: int = 50000
+    num_epochs: int = 5
     dim: int = 128
     batch_size: int = 512
     lr: float = 1e-4
@@ -792,6 +799,7 @@ def main():
         clear_previous_experiments=args.clear_previous_experiments,
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
+        num_epochs=args.num_epochs
     )
 
     # Prepare the trainer for distributed training

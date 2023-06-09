@@ -50,6 +50,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         *,
         current_step,
         num_train_steps,
+        num_epochs: int = 5,
         gradient_accumulation_steps=1,
         max_grad_norm=None,
         save_results_every=100,
@@ -80,6 +81,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             accelerator,
             current_step=current_step,
             num_train_steps=num_train_steps,
+            num_epochs=num_epochs,
             gradient_accumulation_steps=gradient_accumulation_steps,
             max_grad_norm=max_grad_norm,
             save_results_every=save_results_every,
@@ -199,7 +201,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         device = self.device
         self.model.train()
         
-        while int(self.steps.item()) < self.num_train_steps:
+        for epoch in range(self.num_epochs):
             for img in self.dl:
                 loss = 0.0
                 steps = int(self.steps.item())
@@ -295,6 +297,10 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     self.accelerator.print(f"{steps}: saving model to {str(self.results_dir)}")
 
                 self.steps += 1
+
+            if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
+                self.accelerator.print(f"{int(self.steps.item()):05d} [STOP EARLY]: Stopping training early...")
+                break
         
         # Loop finished, save model
         self.accelerator.wait_for_everyone()

@@ -36,6 +36,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         *,
         current_step: int,
         num_train_steps: int,
+        num_epochs: int = 5,
         batch_size: int,
         gradient_accumulation_steps: int = 1,
         max_grad_norm: float = None,
@@ -59,6 +60,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             accelerator=accelerator,
             current_step=current_step,
             num_train_steps=num_train_steps,
+            num_epochs=num_epochs,
             gradient_accumulation_steps=gradient_accumulation_steps,
             max_grad_norm=max_grad_norm,
             save_results_every=save_results_every,
@@ -122,7 +124,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
 
         # logs
-        while int(self.steps.item()) < self.num_train_steps:
+        for epoch in range(self.num_epochs):
             for imgs, input_ids, attn_mask in iter(self.dl):
                 train_loss = 0.0
                 steps = int(self.steps.item())
@@ -148,7 +150,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     train_loss = gathered_loss.mean() / self.gradient_accumulation_steps
 
                     logs = {"loss": train_loss, "lr": self.lr_scheduler.get_last_lr()[0]}
-                    self.print(f"[S{steps:05d}]{proc_label}: maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+                    self.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: maskgit loss: {logs['loss']} - lr: {logs['lr']}")
                     self.accelerator.log(logs, step=steps)
 
                 if not (steps % self.save_model_every):
@@ -168,7 +170,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
                     if self.use_ema:
                         self.accelerator.print(
-                            f"[S{steps:05d}]{proc_label}: saving EMA model to {self.results_dir}"
+                            f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving EMA model to {self.results_dir}"
                         )
                         ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
                         file_name = (
@@ -189,19 +191,24 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         cond_image = F.interpolate(imgs, self.model.cond_image_size, mode="nearest")
                         self.validation_prompts = [""] * self.batch_size
 
-                    self.accelerator.print(f"[S{steps:05d}]{proc_label}: Logging validation images")
+                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: Logging validation images")
                     saved_image = self.save_validation_images(
                         self.validation_prompts, steps, cond_image=cond_image
                     )
-                    self.accelerator.print(f"[S{steps:05d}]{proc_label}: saved to {saved_image}")
+                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saved to {saved_image}")
 
                 if met is not None and not (steps % self.log_metrics_every):
-                    self.accelerator.print(f"[S{steps:05d}]{proc_label}: metrics:")
+                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: metrics:")
 
                 self.steps += 1
 
+            if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
+                self.accelerator.print(f"[E{epoch + 1}][S{int(self.steps.item()):05d}]{proc_label}"
+                                       f"[STOP EARLY]: Stopping training early...")
+                break
+
         # loop complete, save final model
-        self.accelerator.print(f"[S{steps:05d}]{proc_label}[FINAL]: saving model to {self.results_dir}")
+        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}[FINAL]: saving model to {self.results_dir}")
         state_dict = self.accelerator.unwrap_model(self.model).state_dict()
         maskgit_save_name = "maskgit_superres" if self.model.cond_image_size else "maskgit"
         file_name = (
