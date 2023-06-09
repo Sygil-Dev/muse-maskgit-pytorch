@@ -177,7 +177,12 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         for model, filename in models_to_evaluate:
             model.eval()
 
-            valid_data = next(self.valid_dl_iter)
+            try:
+                valid_data = next(self.valid_dl_iter)
+            except StopIteration:
+                self.valid_dl_iter = iter(self.valid_dl)
+                valid_data = next(self.valid_dl_iter)
+                
             valid_data = valid_data.to(self.device)
 
             recons = model(valid_data, return_recons=True)
