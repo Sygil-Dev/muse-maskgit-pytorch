@@ -403,7 +403,7 @@ class Arguments:
     dataset_name: Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
-    num_train_steps: int = 50000
+    num_train_steps: int = -1
     num_epochs: int = 5
     dim: int = 128
     batch_size: int = 512
