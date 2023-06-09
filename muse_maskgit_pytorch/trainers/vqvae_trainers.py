@@ -200,6 +200,11 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         self.steps = self.steps + 1
         device = self.device
         self.model.train()
+
+        if self.accelerator.is_main_process:
+            proc_label = f"[P{self.accelerator.process_index:03d}][Master]"
+        else:
+            proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
         
         for epoch in range(self.num_epochs):
             for img in self.dl:
@@ -258,9 +263,11 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 # log
 
-                self.accelerator.print(
-                    f"{steps}: vae loss: {logs['Train/vae_loss']} - discr loss: {logs['Train/discr_loss']} - lr: {self.lr_scheduler.get_last_lr()[0]}"
-                )
+                self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                                       f"vae loss: {logs['Train/vae_loss']} - "
+                                       f"discr loss: {logs['Train/discr_loss']} - "
+                                       f"lr: {self.lr_scheduler.get_last_lr()[0]}")
+
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
                 self.accelerator.log(logs, step=steps)
 
@@ -278,7 +285,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                         vaes_to_evaluate = ((ema_model.ema_model, f"{steps}.ema"),) + vaes_to_evaluate
 
                     self.log_validation_images(vaes_to_evaluate, logs, steps)
-                    self.accelerator.print(f"{steps}: saving to {str(self.results_dir)}")
+                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
@@ -294,12 +301,13 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                         model_path = str(self.results_dir / file_name)
                         self.accelerator.save(ema_state_dict, model_path)
 
-                    self.accelerator.print(f"{steps}: saving model to {str(self.results_dir)}")
+                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
 
                 self.steps += 1
 
             if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
-                self.accelerator.print(f"{int(self.steps.item()):05d} [STOP EARLY]: Stopping training early...")
+                self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                                       f"[STOP EARLY]: Stopping training early...")
                 break
         
         # Loop finished, save model
@@ -316,5 +324,5 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 model_path = str(self.results_dir / file_name)
                 self.accelerator.save(ema_state_dict, model_path)
 
-            self.accelerator.print(f"{steps}: saving model to {str(self.results_dir)}")
+            self.accelerator.print(f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
 
