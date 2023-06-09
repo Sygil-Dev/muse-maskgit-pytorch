@@ -23,6 +23,8 @@ except ImportError:
     xm = None
     met = None
 
+from tqdm import tqdm
+
 
 class MaskGitTrainer(BaseAcceleratedTrainer):
     def __init__(
@@ -95,6 +97,14 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         else:
             self.ema_model = None
 
+        if not self.on_tpu:
+            if self.num_train_steps <= 0:
+                self.training_bar = tqdm(initial=int(self.steps.item()), total=len(self.dl) * self.num_epochs)
+            else:
+                self.training_bar = tqdm(initial=int(self.steps.item()), total=self.num_train_steps)
+
+            self.info_bar = tqdm(total=0, bar_format='{desc}')
+
     def save_validation_images(
         self, validation_prompts, step: int, cond_image=None, cond_scale=3, temperature=1
     ):
@@ -150,11 +160,24 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     train_loss = gathered_loss.mean() / self.gradient_accumulation_steps
 
                     logs = {"loss": train_loss, "lr": self.lr_scheduler.get_last_lr()[0]}
-                    self.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+
+                    if self.on_tpu:
+                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                                               f"maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+                    else:
+                        self.training_bar.update()
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
+                                                          f"maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+
                     self.accelerator.log(logs, step=steps)
 
                 if not (steps % self.save_model_every):
-                    self.accelerator.print(f"[S{steps:05d}]{proc_label}: saving model to {self.results_dir}")
+                    if self.on_tpu:
+                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                                               f"saving model to {self.results_dir}")
+                    else:
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
+                                                          f"saving model to {self.results_dir}")
 
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                     maskgit_save_name = "maskgit_superres" if self.model.cond_image_size else "maskgit"
@@ -169,9 +192,14 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.accelerator.save(state_dict, model_path)
 
                     if self.use_ema:
-                        self.accelerator.print(
-                            f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving EMA model to {self.results_dir}"
-                        )
+                        if self.on_tpu:
+                            self.accelerator.print(
+                                f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                                f"saving EMA model to {self.results_dir}")
+                        else:
+                            self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
+                                                              f"saving EMA model to {self.results_dir}")
+
                         ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
                         file_name = (
                             f"{maskgit_save_name}.{steps}.ema.pt"
@@ -185,26 +213,40 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 if not (steps % self.save_results_every):
                     cond_image = None
                     if self.model.cond_image_size:
-                        self.accelerator.print(
-                            "With conditional image training, we set the validation prompts to empty strings"
-                        )
                         cond_image = F.interpolate(imgs, self.model.cond_image_size, mode="nearest")
                         self.validation_prompts = [""] * self.batch_size
 
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: Logging validation images")
+                    if self.on_tpu:
+                        self.accelerator.print(f"[E{epoch + 1}]{proc_label}: "
+                                               f"Logging validation images")
+                    else:
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
+                                                          f"Logging validation images")
+
                     saved_image = self.save_validation_images(
                         self.validation_prompts, steps, cond_image=cond_image
                     )
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saved to {saved_image}")
+                    if self.on_tpu:
+                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saved to {saved_image}")
+                    else:
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
+                                                          f"saved to {saved_image}")
 
                 if met is not None and not (steps % self.log_metrics_every):
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: metrics:")
+                    if self.on_tpu:
+                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: metrics:")
+                    else:
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: metrics:")
 
                 self.steps += 1
 
             if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
-                self.accelerator.print(f"[E{epoch + 1}][S{int(self.steps.item()):05d}]{proc_label}"
-                                       f"[STOP EARLY]: Stopping training early...")
+                if self.on_tpu:
+                    self.accelerator.print(f"[E{epoch + 1}][S{int(self.steps.item()):05d}]{proc_label}"
+                                           f"[STOP EARLY]: Stopping training early...")
+                else:
+                    self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}"
+                                                      f"[STOP EARLY]: Stopping training early...")
                 break
 
         # loop complete, save final model
