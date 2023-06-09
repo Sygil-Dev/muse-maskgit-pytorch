@@ -180,7 +180,9 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             try:
                 valid_data = next(self.valid_dl_iter)
             except StopIteration:
-                valid_data = self.valif_dl_iter.seek(0)
+                self.valid_dl_iter = iter(self.valid_dl)
+                valid_data = next(self.valid_dl_iter)
+                
             valid_data = valid_data.to(self.device)
 
             recons = model(valid_data, return_recons=True)
