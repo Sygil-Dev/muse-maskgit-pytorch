@@ -1,7 +1,9 @@
 from attn.ein_attn import Attention as EinAttn
 from attn.sdp_attn import Attention as SDPAttn
+from attn.xformers_attn import Attention as XformersAttn
 import torch
 from torch import FloatTensor, BoolTensor, manual_seed, randn, arange, allclose, no_grad
+from torch.backends.cuda import sdp_kernel
 
 device = torch.device('cuda')
 dtype = torch.float32
@@ -23,8 +25,10 @@ with no_grad():
     # seed RNG before we initialize any layers, so that both will end up with same params
     manual_seed(seed)
     ein_attn = EinAttn(**attn_init_params).to(device, dtype).eval()
+    # manual_seed(seed)
+    # sdp_attn = SDPAttn(**attn_init_params).to(device, dtype).eval()
     manual_seed(seed)
-    sdp_attn = SDPAttn(**attn_init_params).to(device, dtype).eval()
+    xfo_attn = XformersAttn(**attn_init_params).to(device, dtype).eval()
 
     batch_size = 2
 
@@ -34,7 +38,7 @@ with no_grad():
     # generate rand on-CPU for cross-platform determinism of results
     x: FloatTensor = randn(batch_size, vision_tokens, vision_dim, dtype=dtype).to(device)
 
-    text_tokens = 16 # CLIP would be 77
+    text_tokens = 15 # CLIP would be 77
     # there's no reason why these would **have** to be the same (in stable-diffusion text_dim is 768)
     # but lucid didn't expose any separate param for customizing the cross attention input dim.
     # easily fixed, but whatever I'll work with what's there.
@@ -42,14 +46,16 @@ with no_grad():
     context: FloatTensor = randn(batch_size, text_tokens, text_dim, dtype=dtype).to(device)
 
     # attend to just the first two tokens in each text condition (e.g. if both were uncond, so [BOS, EOS] followed by PAD tokens)
-    context_mask: BoolTensor = (arange(text_tokens, device=device) < 2).expand(batch_size, -1)
-    # context_mask = None
+    context_mask: BoolTensor = (arange(text_tokens, device=device) < 2).expand(batch_size, -1).contiguous()
 
     ein_result: FloatTensor = ein_attn.forward(x, context, context_mask)
-    sdp_result: FloatTensor = sdp_attn.forward(x, context, context_mask)
+    # with sdp_kernel(enable_math=False):
+    #     sdp_result: FloatTensor = sdp_attn.forward(x, context, context_mask)
+    xfo_attn: FloatTensor = xfo_attn.forward(x, context, context_mask)
 
     # default relative and absolute tolerance
     rtol=1e-5
     atol=5e-7
-    assert allclose(ein_result, sdp_result, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
+    # assert allclose(ein_result, sdp_result, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
+    assert allclose(ein_result, xfo_attn, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
     print(f'attention implementations returned equivalent result, to tolerance rtol={rtol}, atol={atol}')

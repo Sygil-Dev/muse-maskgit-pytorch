@@ -1,9 +1,9 @@
-from torch import einsum, nn, FloatTensor
+from torch import nn, FloatTensor
 import torch
 import torch.nn.functional as F
-from torch.nn.functional import scaled_dot_product_attention
 from einops import rearrange, repeat
 from typing import Optional
+from xformers.ops import memory_efficient_attention
 
 def l2norm(t):
     return F.normalize(t, dim=-1)
@@ -48,23 +48,27 @@ class Attention(nn.Module):
 
         q, k, v = (self.to_q(x), *self.to_kv(kv_input).chunk(2, dim=-1))
 
-        q, k, v = map(lambda t: rearrange(t, "b n (h d) -> b h n d", h=h), (q, k, v))
+        q, k, v = map(lambda t: rearrange(t, "b n (h d) -> b n h d", h=h), (q, k, v))
 
         nk, nv = self.null_kv
-        nk, nv = map(lambda t: repeat(t, "h 1 d -> b h 1 d", b=x.shape[0]), (nk, nv))
+        nk, nv = map(lambda t: repeat(t, "h 1 d -> b 1 h d", b=x.shape[0]), (nk, nv))
 
-        k = torch.cat((nk, k), dim=-2)
-        v = torch.cat((nv, v), dim=-2)
+        k = torch.cat((nk, k), dim=-3)
+        v = torch.cat((nv, v), dim=-3)
 
         q, k = map(l2norm, (q, k))
         q = q * self.q_scale
         k = k * self.k_scale
 
-        if context_mask is not None:
-            context_mask = rearrange(context_mask, "b j -> b 1 1 j")
+        if context_mask is None:
+            attn_bias = None
+        else:
             context_mask = F.pad(context_mask, (1, 0), value=True)
+            context_mask = rearrange(context_mask, "b j -> b 1 1 j")
+            attn_bias = torch.where(context_mask == True, 0., -10000.)
+            attn_bias = attn_bias.expand(-1, h, q.size(1), -1)
 
-        out: FloatTensor = scaled_dot_product_attention(q, k, v, context_mask)
+        out: FloatTensor = memory_efficient_attention(q, k, v, attn_bias)
 
-        out = rearrange(out, "b h n d -> b n (h d)")
+        out = rearrange(out, "b n h d -> b n (h d)")
         return self.to_out(out)

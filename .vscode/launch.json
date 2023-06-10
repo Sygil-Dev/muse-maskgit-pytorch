@@ -5,7 +5,7 @@
       "type": "python",
       "request": "launch",
       "module": "attn_test",
-      "justMyCode": true
+      "justMyCode": false
     }
   ]
 }
