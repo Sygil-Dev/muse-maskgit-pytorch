@@ -105,7 +105,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         self.optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
         self.discr_optim = get_optimizer(use_8bit_adam, optimizer, discr_parameters, lr, weight_decay)
         
-        if self.num_train_steps <= 0:
+        if self.num_train_steps > 0:
             self.num_lr_steps = self.num_train_steps * self.gradient_accumulation_steps
         else:
             self.num_lr_steps = self.num_epochs * len(self.dl)
