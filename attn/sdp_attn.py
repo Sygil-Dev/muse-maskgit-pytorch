@@ -23,7 +23,6 @@ class LayerNorm(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, dim_head=64, heads=8, cross_attend=False, scale=8):
         super().__init__()
-        self.scale = scale
         self.heads = heads
         inner_dim = dim_head * heads
 
@@ -35,7 +34,9 @@ class Attention(nn.Module):
         self.to_q = nn.Linear(dim, inner_dim, bias=False)
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
 
-        self.q_scale = nn.Parameter(torch.ones(dim_head))
+        self.typical_scale = dim_head ** -.5
+        scale_ratio = scale/self.typical_scale
+        self.q_scale = nn.Parameter(torch.full((dim_head,), scale_ratio))
         self.k_scale = nn.Parameter(torch.ones(dim_head))
 
         self.to_out = nn.Linear(inner_dim, dim, bias=False)
@@ -62,7 +63,7 @@ class Attention(nn.Module):
         q = q * self.q_scale
         k = k * self.k_scale
 
-        sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
+        sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.typical_scale
 
         if exists(context_mask):
             context_mask = rearrange(context_mask, "b j -> b 1 1 j")
