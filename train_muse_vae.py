@@ -46,6 +46,11 @@ parser.add_argument(
     help="Don't flip image.",
 )
 parser.add_argument(
+        "--random_crop",
+        action="store_true",
+        help="Crop the images at random locations instead of cropping from the center.",
+    )
+parser.add_argument(
     "--dataset_save_path",
     type=str,
     default="dataset",
@@ -267,6 +272,7 @@ class Arguments:
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
     no_flip: bool = False
+    random_crop: bool = False
     dataset_save_path: Optional[str] = None
     clear_previous_experiments: bool = False
     max_grad_norm: Optional[float] = None
@@ -480,6 +486,7 @@ def main():
         center_crop=not args.no_center_crop,
         flip=not args.no_flip,
         stream=args.streaming,
+        random_crop=args.random_crop
     )
     # dataloader
 
