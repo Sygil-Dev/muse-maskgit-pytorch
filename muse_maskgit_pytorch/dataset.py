@@ -39,7 +39,8 @@ class ImageDataset(Dataset):
         flip=True,
         center_crop=True,
         stream=False,
-        using_taming=False
+        using_taming=False,
+        random_crop = False,
     ):
         super().__init__()
         self.dataset = dataset
@@ -51,8 +52,10 @@ class ImageDataset(Dataset):
         ]
         if flip:
             transform_list.append(T.RandomHorizontalFlip())
-        if center_crop:
+        if center_crop and not random_crop:
             transform_list.append(T.CenterCrop(image_size))
+        if random_crop:
+            transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
         self.using_taming = using_taming
