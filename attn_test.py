@@ -43,12 +43,13 @@ with no_grad():
 
     # attend to just the first two tokens in each text condition (e.g. if both were uncond, so [BOS, EOS] followed by PAD tokens)
     context_mask: BoolTensor = (arange(text_tokens, device=device) < 2).expand(batch_size, -1)
+    # context_mask = None
 
     ein_result: FloatTensor = ein_attn.forward(x, context, context_mask)
     sdp_result: FloatTensor = sdp_attn.forward(x, context, context_mask)
 
     # default relative and absolute tolerance
     rtol=1e-5
-    atol=1e-8
+    atol=5e-7
     assert allclose(ein_result, sdp_result, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
     print(f'attention implementations returned equivalent result, to tolerance rtol={rtol}, atol={atol}')

@@ -1,11 +1,9 @@
-from torch import einsum, nn
+from torch import einsum, nn, FloatTensor
 import torch
 import torch.nn.functional as F
+from torch.nn.functional import scaled_dot_product_attention
 from einops import rearrange, repeat
-
-# helpers
-def exists(val):
-    return val is not None
+from typing import Optional
 
 def l2norm(t):
     return F.normalize(t, dim=-1)
@@ -34,15 +32,15 @@ class Attention(nn.Module):
         self.to_q = nn.Linear(dim, inner_dim, bias=False)
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
 
-        self.typical_scale = dim_head ** -.5
-        scale_ratio = scale/self.typical_scale
+        typical_scale = dim_head ** -.5
+        scale_ratio = scale/typical_scale
         self.q_scale = nn.Parameter(torch.full((dim_head,), scale_ratio))
         self.k_scale = nn.Parameter(torch.ones(dim_head))
 
         self.to_out = nn.Linear(inner_dim, dim, bias=False)
 
-    def forward(self, x, context=None, context_mask=None):
-        assert not (exists(context) ^ self.cross_attend)
+    def forward(self, x: FloatTensor, context: Optional[FloatTensor]=None, context_mask=None):
+        assert (context is None) != self.cross_attend
 
         h = self.heads
         x = self.norm(x)
@@ -63,17 +61,11 @@ class Attention(nn.Module):
         q = q * self.q_scale
         k = k * self.k_scale
 
-        sim = q @ k.transpose(-2, -1) * self.typical_scale
-
-        if exists(context_mask):
+        if context_mask is not None:
             context_mask = rearrange(context_mask, "b j -> b 1 1 j")
             context_mask = F.pad(context_mask, (1, 0), value=True)
 
-            mask_value = -torch.finfo(sim.dtype).max
-            sim = sim.masked_fill(~context_mask, mask_value)
-
-        attn = sim.softmax(dim=-1)
-        out = attn @ v
+        out: FloatTensor = scaled_dot_product_attention(q, k, v, context_mask)
 
         out = rearrange(out, "b h n d -> b n (h d)")
         return self.to_out(out)
