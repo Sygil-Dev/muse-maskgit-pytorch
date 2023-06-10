@@ -19,7 +19,6 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
 
-# TODO: make faster
 class Attention(nn.Module):
     def __init__(self, dim, dim_head=64, heads=8, cross_attend=False, scale=8):
         super().__init__()
