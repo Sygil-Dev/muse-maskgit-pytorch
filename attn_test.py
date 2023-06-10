@@ -4,6 +4,7 @@ from attn.xformers_attn import Attention as XformersAttn
 import torch
 from torch import FloatTensor, BoolTensor, manual_seed, randn, arange, allclose, no_grad
 from torch.backends.cuda import sdp_kernel
+from torch.nn.functional import pad
 
 device = torch.device('cuda')
 dtype = torch.float32
@@ -38,7 +39,7 @@ with no_grad():
     # generate rand on-CPU for cross-platform determinism of results
     x: FloatTensor = randn(batch_size, vision_tokens, vision_dim, dtype=dtype).to(device)
 
-    text_tokens = 15 # CLIP would be 77
+    text_tokens = 16 # CLIP would be 77
     # there's no reason why these would **have** to be the same (in stable-diffusion text_dim is 768)
     # but lucid didn't expose any separate param for customizing the cross attention input dim.
     # easily fixed, but whatever I'll work with what's there.
@@ -48,10 +49,22 @@ with no_grad():
     # attend to just the first two tokens in each text condition (e.g. if both were uncond, so [BOS, EOS] followed by PAD tokens)
     context_mask: BoolTensor = (arange(text_tokens, device=device) < 2).expand(batch_size, -1).contiguous()
 
+    # for xformers cutlassF kernel: masks are only supported for keys whose lengths are multiples of 8:
+    # https://gist.github.com/Birch-san/0c36d228e1d4b881a06d1c6e5289d569
+    # so, we add whatever we feel like to the end of the key to extend it to a multiple of 8,
+    # and add "discard" tokens to the mask to get rid of the excess
+    # note: muse will add an extra "null" token to our context, so we'll account for that in advance
+    mask_length = context_mask.shape[-1] + 1
+    extra_tokens_needed = 8 - (mask_length % 8)
+    # 0-pad mask to multiple of 8 tokens
+    xfo_context_mask = pad(context_mask, (0, extra_tokens_needed))
+    # replicate-pad embedding to multiple of 8 tokens (mask will hide the extra tokens)
+    xfo_context = pad(context, (0, 0, 0, extra_tokens_needed,), 'replicate')
+
     ein_result: FloatTensor = ein_attn.forward(x, context, context_mask)
     # with sdp_kernel(enable_math=False):
     #     sdp_result: FloatTensor = sdp_attn.forward(x, context, context_mask)
-    xfo_attn: FloatTensor = xfo_attn.forward(x, context, context_mask)
+    xfo_attn: FloatTensor = xfo_attn.forward(x, xfo_context, xfo_context_mask)
 
     # default relative and absolute tolerance
     rtol=1e-5
