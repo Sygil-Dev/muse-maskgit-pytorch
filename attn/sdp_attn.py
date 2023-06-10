@@ -63,7 +63,7 @@ class Attention(nn.Module):
         q = q * self.q_scale
         k = k * self.k_scale
 
-        sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.typical_scale
+        sim = q @ k.transpose(-2, -1) * self.typical_scale
 
         if exists(context_mask):
             context_mask = rearrange(context_mask, "b j -> b 1 1 j")
@@ -73,7 +73,7 @@ class Attention(nn.Module):
             sim = sim.masked_fill(~context_mask, mask_value)
 
         attn = sim.softmax(dim=-1)
-        out = einsum("b h i j, b h j d -> b h i d", attn, v)
+        out = attn @ v
 
         out = rearrange(out, "b h n d -> b n (h d)")
         return self.to_out(out)
