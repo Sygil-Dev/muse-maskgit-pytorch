@@ -1,4 +1,4 @@
-from torch import nn, FloatTensor
+from torch import nn, FloatTensor, BoolTensor
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
@@ -38,14 +38,16 @@ class Attention(nn.Module):
 
         self.to_out = nn.Linear(inner_dim, dim, bias=False)
 
-    def forward(self, x: FloatTensor, context: Optional[FloatTensor]=None, context_mask=None):
+    def forward(self, x: FloatTensor, context: Optional[FloatTensor]=None, context_mask: Optional[BoolTensor]=None):
         assert (context is None) != self.cross_attend
 
         h = self.heads
+        # TODO: you could fuse this layernorm with the linear that follows it, e.g. via TransformerEngine
         x = self.norm(x)
 
         kv_input = context if self.cross_attend else x
 
+        # TODO: to_q and to_kvs could be combined into one to_qkv
         q, k, v = (self.to_q(x), *self.to_kv(kv_input).chunk(2, dim=-1))
 
         q, k, v = map(lambda t: rearrange(t, "b n (h d) -> b n h d", h=h), (q, k, v))
