@@ -42,9 +42,8 @@ with no_grad():
 
     # I've said text here simply as an example of something you could cross-attend to
     text_tokens = 16 # CLIP would be 77
-    # there's no reason why these would **have** to be the same (in stable-diffusion text_dim is 768)
-    # but lucid didn't expose any separate param for customizing the cross attention input dim.
-    # easily fixed, but whatever I'll work with what's there.
+    # for a *general* cross-attention Module:
+    # kv_in_dim could differ from q_in_dim, but this attention Module requires x and context to have same dim.
     text_dim = vision_dim
     context: FloatTensor = randn(batch_size, text_tokens, text_dim, dtype=dtype).to(device)
 
