@@ -105,11 +105,16 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         self.optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
         self.discr_optim = get_optimizer(use_8bit_adam, optimizer, discr_parameters, lr, weight_decay)
         
+        if self.num_train_steps <= 0:
+            self.num_lr_steps = self.num_train_steps * self.gradient_accumulation_steps
+        else:
+            self.num_lr_steps = self.num_epochs * len(self.dl)
+        
         self.lr_scheduler: LRScheduler = get_scheduler(
             lr_scheduler_type,
             optimizer=self.optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
-            num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_training_steps=self.num_lr_steps,
             num_cycles=num_cycles,
             power=scheduler_power,
         )
@@ -118,7 +123,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             lr_scheduler_type,
             optimizer=self.discr_optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
-            num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_training_steps=self.num_lr_steps,
             num_cycles=num_cycles,
             power=scheduler_power,
         )
