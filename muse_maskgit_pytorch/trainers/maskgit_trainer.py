@@ -116,6 +116,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
     def save_validation_images(
         self, validation_prompts, step: int, cond_image=None, cond_scale=3, temperature=1
     ):
+        # moved the print to the top of the function so it shows before the progress bar for reability.
+        if validation_prompts:
+            self.accelerator.print(f"\nStep: {step} | Logging with prompts: {[' | '.join(validation_prompts)]}")
+
         images = self.model.generate(
             validation_prompts,
             cond_images=cond_image,
@@ -129,7 +133,6 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         if self.accelerator.is_main_process:
             save_image(images, save_file, "png")
-            self.accelerator.print(f"\nStep: {step} | Logging with prompts: {[' | '.join(validation_prompts)]}")
             self.log_validation_images([Image.open(save_file)], step, ["|".join(validation_prompts)])
         return save_file
 
