@@ -608,6 +608,8 @@ def main():
                 vqgan_config_path=args.taming_config_path,
                 accelerator=accelerator,
             )
+            args.num_tokens = vae.codebook_size
+            args.seq_len = vae.get_encoded_fmap_size(args.image_size) ** 2
         else:
             raise ValueError(
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
