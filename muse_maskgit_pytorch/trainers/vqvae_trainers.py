@@ -42,38 +42,38 @@ def exists(val):
 
 class VQGanVAETrainer(BaseAcceleratedTrainer):
     def __init__(
-        self,
-        vae: VQGanVAE,
-        dataloader: DataLoader,
-        valid_dataloader: DataLoader,
-        accelerator: Accelerator,
-        *,
-        current_step,
-        num_train_steps,
-        num_epochs: int = 5,
-        gradient_accumulation_steps=1,
-        max_grad_norm=None,
-        save_results_every=100,
-        save_model_every=1000,
-        results_dir="./results",
-        logging_dir="./results/logs",
-        apply_grad_penalty_every=4,
-        lr=3e-4,
-        lr_scheduler_type="constant",
-        lr_warmup_steps=500,
-        discr_max_grad_norm=None,
-        use_ema=True,
-        ema_beta=0.995,
-        ema_update_after_step=0,
-        ema_update_every=1,
-        clear_previous_experiments=False,
-        validation_image_scale: float = 1.0,
-        only_save_last_checkpoint=False,
-        optimizer="Adam",
-        weight_decay=0.0,
-        use_8bit_adam=False,
-        num_cycles=1,
-        scheduler_power=1.0
+            self,
+            vae: VQGanVAE,
+            dataloader: DataLoader,
+            valid_dataloader: DataLoader,
+            accelerator: Accelerator,
+            *,
+            current_step,
+            num_train_steps,
+            num_epochs: int = 5,
+            gradient_accumulation_steps=1,
+            max_grad_norm=None,
+            save_results_every=100,
+            save_model_every=1000,
+            results_dir="./results",
+            logging_dir="./results/logs",
+            apply_grad_penalty_every=4,
+            lr=3e-4,
+            lr_scheduler_type="constant",
+            lr_warmup_steps=500,
+            discr_max_grad_norm=None,
+            use_ema=True,
+            ema_beta=0.995,
+            ema_update_after_step=0,
+            ema_update_every=1,
+            clear_previous_experiments=False,
+            validation_image_scale: float = 1.0,
+            only_save_last_checkpoint=False,
+            optimizer="Adam",
+            weight_decay=0.0,
+            use_8bit_adam=False,
+            num_cycles=1,
+            scheduler_power=1.0
     ):
         super().__init__(
             dataloader,
@@ -214,7 +214,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index:03d}][Master]"
         else:
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
-        
+
         for epoch in range(self.num_epochs):
             for img in self.dl:
                 loss = 0.0
@@ -242,7 +242,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
                 accum_log(logs, {"Train/vae_loss": loss.item() / self.gradient_accumulation_steps})
-
 
                 self.lr_scheduler.step()
                 self.lr_scheduler_discr.step()
@@ -305,7 +304,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                         model_path = str(self.results_dir / file_name)
                         self.accelerator.save(ema_state_dict, model_path)
 
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+                    self.accelerator.print(
+                        f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
 
                 self.steps += 1
 
@@ -313,7 +313,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
                                        f"[STOP EARLY]: Stopping training early...")
                 break
-        
+
         # Loop finished, save model
         self.accelerator.wait_for_everyone()
         if self.is_main_process:
@@ -328,5 +328,5 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 model_path = str(self.results_dir / file_name)
                 self.accelerator.save(ema_state_dict, model_path)
 
-            self.accelerator.print(f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
-
+            self.accelerator.print(
+                f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
