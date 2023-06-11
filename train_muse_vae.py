@@ -22,6 +22,9 @@ import re
 
 from omegaconf import OmegaConf, ValidationError
 
+# disable bitsandbytes welcome message.
+os.environ['BITSANDBYTES_NOWELCOME'] = 1
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--webdataset", type=str, default=None, help="Path to webdataset if using one.")
 parser.add_argument(
@@ -326,6 +329,8 @@ class Arguments:
     cache_path: Optional[str] = None
     no_cache: bool = False
     latest_checkpoint: bool = False
+    do_not_save_config: bool = False
+    use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
     generate_config: bool = False
@@ -422,8 +427,7 @@ def main():
 
             checkpoint_files = glob.glob(os.path.join(args.resume_path, "vae.*.pt"))
             if checkpoint_files:
-                latest_checkpoint_file = max(checkpoint_files,
-                                             key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                latest_checkpoint_file = max(checkpoint_files, key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
 
                 # Check if latest checkpoint is empty or unreadable
                 if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
@@ -431,8 +435,7 @@ def main():
                         f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                     if len(checkpoint_files) > 1:
                         # Use the second last checkpoint as a fallback
-                        latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                     key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                        latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
                         accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                     else:
                         accelerator.print("No usable checkpoint found.")

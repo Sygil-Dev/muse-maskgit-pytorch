@@ -8,7 +8,6 @@ import datasets
 import diffusers
 from rich import inspect
 
-import torch  # noqa: F401
 import transformers
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
@@ -53,6 +52,9 @@ if accelerate.utils.is_rich_available():
 
 # remove some unnecessary errors from transformer shown on the console.
 transformers.logging.set_verbosity_error()
+
+# disable bitsandbytes welcome message.
+os.environ['BITSANDBYTES_NOWELCOME'] = 1
 
 # Create the parser
 parser = argparse.ArgumentParser()
@@ -359,9 +361,20 @@ parser.add_argument(
     help="whether to load a dataset with links instead of image (image column becomes URL column)",
 )
 parser.add_argument(
-        "--latest_checkpoint",
-        action="store_true",
-        help="Automatically find and use the latest checkpoint in the folder.",
+    "--latest_checkpoint",
+    action="store_true",
+    help="Automatically find and use the latest checkpoint in the folder.",
+)
+parser.add_argument(
+    "--do_not_save_config",
+    action="store_true",
+    default=False,
+    help="Generate example YAML configuration file",
+)
+parser.add_argument(
+    "--use_l2_recon_loss",
+    action="store_true",
+    help="Use F.mse_loss instead of F.l1_loss.",
     )
 parser.add_argument(
     "--debug",
@@ -443,10 +456,11 @@ class Arguments:
     no_cache: bool = False
     link: bool = False
     latest_checkpoint: bool = False
+    do_not_save_config: bool = False
+    use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
     generate_config: bool = False
-
 
 def main():
     args = parser.parse_args(namespace=Arguments())
@@ -555,8 +569,7 @@ def main():
 
                 checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
                 if checkpoint_files:
-                    latest_checkpoint_file = max(checkpoint_files,
-                                                 key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                    latest_checkpoint_file = max(checkpoint_files,key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
 
                     # Check if latest checkpoint is empty or unreadable
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
@@ -564,8 +577,7 @@ def main():
                             f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                         key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
                             accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
                             accelerator.print("No usable checkpoint found.")
@@ -822,7 +834,8 @@ def main():
         clear_previous_experiments=args.clear_previous_experiments,
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
-        num_epochs=args.num_epochs
+        num_epochs=args.num_epochs,
+        args=args,
     )
 
     # Prepare the trainer for distributed training
