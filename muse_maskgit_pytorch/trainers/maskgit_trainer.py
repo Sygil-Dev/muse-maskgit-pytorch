@@ -178,7 +178,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                                                f"maskgit loss: {logs['loss']} - lr: {logs['lr']}")
                     else:
                         self.training_bar.update()
-                        self.info_bar.set_description_str(f"\n[E{epoch + 1}]{proc_label}: "
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
                                                           f"maskgit loss: {logs['loss']} - lr: {logs['lr']}")
 
                     self.accelerator.log(logs, step=steps)
@@ -214,7 +214,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                                 f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: "
                                 f"saving EMA model to {self.results_dir}")
                         else:
-                            self.info_bar.set_description_str(f"\n[E{epoch + 1}]{proc_label}: "
+                            self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
                                                               f"saving EMA model to {self.results_dir}")
 
                         ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
@@ -242,7 +242,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         self.accelerator.print(f"\n[E{epoch + 1}]{proc_label}: "
                                                f"Logging validation images")
                     else:
-                        self.info_bar.set_description_str(f"\n[E{epoch + 1}]{proc_label}: "
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
                                                           f"Logging validation images")
 
                     saved_image = self.save_validation_images(
@@ -251,14 +251,14 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     if self.on_tpu:
                         self.accelerator.print(f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saved to {saved_image}")
                     else:
-                        self.info_bar.set_description_str(f"\n[E{epoch + 1}]{proc_label}: "
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
                                                           f"saved to {saved_image}")
 
                 if met is not None and not (steps % self.log_metrics_every):
                     if self.on_tpu:
                         self.accelerator.print(f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: metrics:")
                     else:
-                        self.info_bar.set_description_str(f"\n[E{epoch + 1}]{proc_label}: metrics:")
+                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: metrics:")
 
                 self.steps += 1
 
@@ -267,7 +267,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.accelerator.print(f"\n[E{epoch + 1}][{int(self.steps.item()):05d}]{proc_label}"
                                            f"[STOP EARLY]: Stopping training early...")
                 else:
-                    self.info_bar.set_description_str(f"\n[E{epoch + 1}]{proc_label}"
+                    self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}"
                                                       f"[STOP EARLY]: Stopping training early...")
                 break
 
