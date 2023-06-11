@@ -735,11 +735,16 @@ def main():
         args.use_8bit_adam, args.optimizer, set(transformer.parameters()), args.lr, args.weight_decay
     )
 
+    if args.num_train_steps > 0:
+        num_lr_steps = args.num_train_steps * args.gradient_accumulation_steps
+    else:
+        num_lr_steps = args.num_epochs * len(dataloader)
+
     scheduler: SchedulerType = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-        num_training_steps=args.num_train_steps * args.gradient_accumulation_steps,
+        num_training_steps=num_lr_steps,
         num_cycles=args.num_cycles,
         power=args.scheduler_power,
     )
