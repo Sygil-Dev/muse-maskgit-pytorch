@@ -54,7 +54,7 @@ if accelerate.utils.is_rich_available():
 transformers.logging.set_verbosity_error()
 
 # disable bitsandbytes welcome message.
-os.environ['BITSANDBYTES_NOWELCOME'] = 1
+os.environ['BITSANDBYTES_NOWELCOME'] = '1'
 
 # Create the parser
 parser = argparse.ArgumentParser()

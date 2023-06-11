@@ -264,8 +264,6 @@ class BaseAcceleratedTrainer(nn.Module):
         return pkg
 
     def log_validation_images(self, images, step, prompts=None):
-        if prompts:
-            self.print(f"\nStep: {step} | Logging with prompts: {prompts}")
         if self.validation_image_scale != 1:
             # Calculate the new height based on the scale factor
             new_height = int(images[0].shape[0] * self.validation_image_scale)

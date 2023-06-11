@@ -20,10 +20,10 @@ import os
 import glob
 import re
 
-from omegaconf import OmegaConf, ValidationError
+from omegaconf import OmegaConf
 
 # disable bitsandbytes welcome message.
-os.environ['BITSANDBYTES_NOWELCOME'] = 1
+os.environ['BITSANDBYTES_NOWELCOME'] = '1'
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--webdataset", type=str, default=None, help="Path to webdataset if using one.")
