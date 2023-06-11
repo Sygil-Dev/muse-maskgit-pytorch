@@ -1,5 +1,5 @@
 import os
-import random
+import random, shutil
 import sys
 import time
 from pathlib import Path
@@ -7,7 +7,7 @@ from threading import Thread
 
 import datasets
 import torch
-from datasets import Image
+from datasets import Image, load_from_disk
 from PIL import Image as pImage
 from PIL import ImageFile
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -287,10 +287,34 @@ def save_dataset_with_progress(dataset, save_path):
             time.sleep(1)
 
 
-def get_dataset_from_dataroot(data_root, image_column="image", caption_column="caption", save_path="dataset", save=True):
+def get_dataset_from_dataroot(
+    data_root, image_column="image", caption_column="caption", save_path="dataset", save=True,
+    ):
     # Check if data_root is a symlink and resolve it to its target location if it is
     if os.path.islink(data_root):
         data_root = os.path.realpath(data_root)
+
+    if os.path.exists(save_path):
+        # Get the modified time of save_path
+        save_path_mtime = os.stat(save_path).st_mtime
+
+        if save:
+            # Traverse the directory tree of data_root and get the modified time of all files and subdirectories
+            print("Checking modified date of all the files and subdirectories in the dataset folder.")
+            data_root_mtime = max(
+                os.stat(os.path.join(root, f)).st_mtime
+                for root, dirs, files in os.walk(data_root)
+                for f in files + dirs
+            )
+
+            # Check if data_root is newer than save_path
+            if data_root_mtime > save_path_mtime:
+                print("The data_root folder has being updated recently. Removing previously saved dataset and updating it.")
+                shutil.rmtree(save_path, ignore_errors=True)
+            else:
+                print("The dataset is up-to-date. Loading...")
+                # Load the dataset from save_path if it is up-to-date
+                return load_from_disk(save_path)
 
     extensions = ["jpg", "jpeg", "png", "webp"]
     image_paths = []
@@ -315,9 +339,10 @@ def get_dataset_from_dataroot(data_root, image_column="image", caption_column="c
         data_dict[caption_column].append(captions)
     dataset = datasets.Dataset.from_dict(data_dict)
     dataset = dataset.cast_column(image_column, Image())
-    # dataset.save_to_disk(save_path)
+
     if save:
         save_dataset_with_progress(dataset, save_path)
+
     return dataset
 
 
