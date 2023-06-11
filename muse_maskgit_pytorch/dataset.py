@@ -85,16 +85,18 @@ class ImageTextDataset(ImageDataset):
         flip=True,
         center_crop=True,
         stream=False,
-        using_taming=False
+        using_taming=False,
+        random_crop=False,
     ):
         super().__init__(
             dataset,
             image_size=image_size,
             image_column=image_column,
             flip=flip,
-            center_crop=center_crop,
             stream=stream,
-            using_taming=using_taming
+            center_crop=center_crop,
+            using_taming=using_taming,
+            random_crop=random_crop,
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
@@ -192,7 +194,7 @@ class URLTextDataset(ImageDataset):
 
 
 class LocalTextImageDataset(Dataset):
-    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False):
+    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False):
         super().__init__()
         self.tokenizer = tokenizer
         self.using_taming = using_taming
@@ -226,8 +228,10 @@ class LocalTextImageDataset(Dataset):
         ]
         if flip:
             transform_list.append(T.RandomHorizontalFlip())
-        if center_crop:
+        if center_crop and not random_crop:
             transform_list.append(T.CenterCrop(image_size))
+        if random_crop:
+            transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
 
