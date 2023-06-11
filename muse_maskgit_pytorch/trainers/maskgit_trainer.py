@@ -14,6 +14,8 @@ from muse_maskgit_pytorch.muse_maskgit_pytorch import MaskGit
 from muse_maskgit_pytorch.t5 import t5_encode_text_from_encoded
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import BaseAcceleratedTrainer
 
+from omegaconf import OmegaConf
+
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
@@ -55,6 +57,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         clear_previous_experiments=False,
         validation_image_scale: float = 1.0,
         only_save_last_checkpoint=False,
+        args=None,
     ):
         super().__init__(
             dataloader=dataloader,
@@ -77,6 +80,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.save_results_every = save_results_every
         self.log_metrics_every = log_metrics_every
         self.batch_size = batch_size
+
+        # arguments used for the training script,
+        # we are going to use them later to save them to a config file.
+        self.args = args
+
         # maskgit
         maskgit.vae.requires_grad_(False)
         maskgit.transformer.t5.requires_grad_(False)
@@ -113,7 +121,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             cond_images=cond_image,
             cond_scale=cond_scale,
             temperature=temperature,
-        ).to("cpu")
+        ).to(self.accelerator.device)
 
         save_dir = self.results_dir.joinpath("MaskGit")
         save_dir.mkdir(exist_ok=True, parents=True)
@@ -121,6 +129,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         if self.accelerator.is_main_process:
             save_image(images, save_file, "png")
+            self.accelerator.print(f"\nStep: {step} | Logging with prompts: {[' | '.join(validation_prompts)]}")
             self.log_validation_images([Image.open(save_file)], step, ["|".join(validation_prompts)])
         return save_file
 
@@ -176,7 +185,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
                                                f"saving model to {self.results_dir}")
                     else:
-                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
+                        self.accelerator.print(f"[E{epoch + 1}]{proc_label}: "
                                                           f"saving model to {self.results_dir}")
 
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
@@ -190,6 +199,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     model_path = self.results_dir.joinpath(file_name)
                     self.accelerator.wait_for_everyone()
                     self.accelerator.save(state_dict, model_path)
+
+                    if self.args and not self.args.do_not_save_config:
+                        # save config file next to the model file.
+                        conf = OmegaConf.create(vars(self.args))
+                        OmegaConf.save(conf, f"{model_path}.yaml")
 
                     if self.use_ema:
                         if self.on_tpu:
@@ -209,6 +223,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         model_path = str(self.results_dir / file_name)
                         self.accelerator.wait_for_everyone()
                         self.accelerator.save(ema_state_dict, model_path)
+
+                        if self.args and not self.args.do_not_save_config:
+                            # save config file next to the model file.
+                            conf = OmegaConf.create(vars(self.args))
+                            OmegaConf.save(conf, f"{model_path}.yaml")
 
                 if not (steps % self.save_results_every):
                     cond_image = None
@@ -263,6 +282,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.accelerator.wait_for_everyone()
         self.accelerator.save(state_dict, model_path)
 
+        if self.args and not self.args.do_not_save_config:
+            # save config file next to the model file.
+            conf = OmegaConf.create(vars(self.args))
+            OmegaConf.save(conf, f"{model_path}.yaml")
+
         if self.use_ema:
             self.accelerator.print(
                 f"[S{steps:05d}]{proc_label}[FINAL]: saving EMA model to {self.results_dir}"
@@ -276,6 +300,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             model_path = str(self.results_dir / file_name)
             self.accelerator.wait_for_everyone()
             self.accelerator.save(ema_state_dict, model_path)
+
+            if self.args and not self.args.do_not_save_config:
+                # save config file next to the model file.
+                conf = OmegaConf.create(vars(self.args))
+                OmegaConf.save(conf, f"{model_path}.yaml")
 
         cond_image = None
         if self.model.cond_image_size:
