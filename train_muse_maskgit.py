@@ -51,6 +51,9 @@ if accelerate.utils.is_rich_available():
 
     traceback_install(show_locals=True, width=120, word_wrap=True)
 
+# remove some unnecessary errors from transformer shown on the console.
+transformers.logging.set_verbosity_error()
+
 # Create the parser
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -497,7 +500,9 @@ def main():
 
     if accelerator.is_main_process:
         accelerator.print(f"Preparing MaskGit for training on {accelerator.device.type}")
-        inspect(args, docs=False)
+        if args.debug:
+            inspect(args, docs=False)
+
         accelerate.utils.set_seed(args.seed)
 
     # Load the dataset (main process first to download, rest will load from cache)
@@ -511,7 +516,6 @@ def main():
                     image_column=args.image_column,
                     caption_column=args.caption_column,
                     save_path=args.dataset_save_path,
-                    save=,
                 )
         elif args.dataset_name is not None:
             dataset = load_dataset(
