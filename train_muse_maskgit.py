@@ -412,7 +412,7 @@ class Arguments:
     logging_dir: str = "results/logs"
     vae_path: Optional[str] = None
     dataset_name: Optional[str] = None
-    hf_split_name:  Optional[str] = None
+    hf_split_name: Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
     num_train_steps: int = -1
