@@ -42,38 +42,38 @@ def exists(val):
 
 class VQGanVAETrainer(BaseAcceleratedTrainer):
     def __init__(
-        self,
-        vae: VQGanVAE,
-        dataloader: DataLoader,
-        valid_dataloader: DataLoader,
-        accelerator: Accelerator,
-        *,
-        current_step,
-        num_train_steps,
-        num_epochs: int = 5,
-        gradient_accumulation_steps=1,
-        max_grad_norm=None,
-        save_results_every=100,
-        save_model_every=1000,
-        results_dir="./results",
-        logging_dir="./results/logs",
-        apply_grad_penalty_every=4,
-        lr=3e-4,
-        lr_scheduler_type="constant",
-        lr_warmup_steps=500,
-        discr_max_grad_norm=None,
-        use_ema=True,
-        ema_beta=0.995,
-        ema_update_after_step=0,
-        ema_update_every=1,
-        clear_previous_experiments=False,
-        validation_image_scale: float = 1.0,
-        only_save_last_checkpoint=False,
-        optimizer="Adam",
-        weight_decay=0.0,
-        use_8bit_adam=False,
-        num_cycles=1,
-        scheduler_power=1.0
+            self,
+            vae: VQGanVAE,
+            dataloader: DataLoader,
+            valid_dataloader: DataLoader,
+            accelerator: Accelerator,
+            *,
+            current_step,
+            num_train_steps,
+            num_epochs: int = 5,
+            gradient_accumulation_steps=1,
+            max_grad_norm=None,
+            save_results_every=100,
+            save_model_every=1000,
+            results_dir="./results",
+            logging_dir="./results/logs",
+            apply_grad_penalty_every=4,
+            lr=3e-4,
+            lr_scheduler_type="constant",
+            lr_warmup_steps=500,
+            discr_max_grad_norm=None,
+            use_ema=True,
+            ema_beta=0.995,
+            ema_update_after_step=0,
+            ema_update_every=1,
+            clear_previous_experiments=False,
+            validation_image_scale: float = 1.0,
+            only_save_last_checkpoint=False,
+            optimizer="Adam",
+            weight_decay=0.0,
+            use_8bit_adam=False,
+            num_cycles=1,
+            scheduler_power=1.0
     ):
         super().__init__(
             dataloader,
@@ -104,12 +104,17 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         # optimizers
         self.optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
         self.discr_optim = get_optimizer(use_8bit_adam, optimizer, discr_parameters, lr, weight_decay)
-        
+
+        if self.num_train_steps > 0:
+            self.num_lr_steps = self.num_train_steps * self.gradient_accumulation_steps
+        else:
+            self.num_lr_steps = self.num_epochs * len(self.dl)
+
         self.lr_scheduler: LRScheduler = get_scheduler(
             lr_scheduler_type,
             optimizer=self.optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
-            num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_training_steps=self.num_lr_steps,
             num_cycles=num_cycles,
             power=scheduler_power,
         )
@@ -118,7 +123,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             lr_scheduler_type,
             optimizer=self.discr_optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
-            num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_training_steps=self.num_lr_steps,
             num_cycles=num_cycles,
             power=scheduler_power,
         )
@@ -171,30 +176,34 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         )
         self.accelerator.save(pkg, path)
 
-    def log_validation_images(self, models_to_evaluate, logs, steps):
+    def log_validation_images(self, logs, steps):
         log_imgs = []
-        prompts = ["vae"] if len(models_to_evaluate) == 1 else ["vae", "ema"]
-        for model, filename in models_to_evaluate:
-            model.eval()
+        self.model.eval()
 
+        try:
             valid_data = next(self.valid_dl_iter)
-            valid_data = valid_data.to(self.device)
+        except StopIteration:
+            self.valid_dl_iter = iter(self.valid_dl)
+            valid_data = next(self.valid_dl_iter)
 
-            recons = model(valid_data, return_recons=True)
+        valid_data = valid_data.to(self.device)
 
-            # else save a grid of images
+        recons = self.model(valid_data, return_recons=True)
 
-            imgs_and_recons = torch.stack((valid_data, recons), dim=0)
-            imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
+        # else save a grid of images
 
-            imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
-            grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+        imgs_and_recons = torch.stack((valid_data, recons), dim=0)
+        imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
 
-            logs["reconstructions"] = grid
-            save_file = str(self.results_dir / f"{filename}.png")
-            save_image(grid, save_file)
-            log_imgs.append(Image.open(save_file))
-        super().log_validation_images(log_imgs, steps, prompts=prompts)
+        imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
+        grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+
+        logs["reconstructions"] = grid
+        save_file = str(self.results_dir / f"{steps}.png")
+        save_image(grid, save_file)
+        log_imgs.append(Image.open(save_file))
+        super().log_validation_images(log_imgs, steps, prompts=["vae"])
+        self.model.train()
 
     def train(self):
         self.steps = self.steps + 1
@@ -205,7 +214,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index:03d}][Master]"
         else:
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
-        
+
         for epoch in range(self.num_epochs):
             for img in self.dl:
                 loss = 0.0
@@ -233,7 +242,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
                 accum_log(logs, {"Train/vae_loss": loss.item() / self.gradient_accumulation_steps})
-
 
                 self.lr_scheduler.step()
                 self.lr_scheduler_discr.step()
@@ -279,13 +287,9 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 # sample results every so often
 
                 if (steps % self.save_results_every) == 0:
-                    vaes_to_evaluate = ((self.model, str(steps)),)
-
-                    if self.use_ema:
-                        vaes_to_evaluate = ((ema_model.ema_model, f"{steps}.ema"),) + vaes_to_evaluate
-
-                    self.log_validation_images(vaes_to_evaluate, logs, steps)
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
+                    self.log_validation_images(logs, steps)
+                    self.accelerator.print(
+                        f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
@@ -301,7 +305,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                         model_path = str(self.results_dir / file_name)
                         self.accelerator.save(ema_state_dict, model_path)
 
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+                    self.accelerator.print(
+                        f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
 
                 self.steps += 1
 
@@ -309,7 +314,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
                                        f"[STOP EARLY]: Stopping training early...")
                 break
-        
+
         # Loop finished, save model
         self.accelerator.wait_for_everyone()
         if self.is_main_process:
@@ -324,5 +329,5 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 model_path = str(self.results_dir / file_name)
                 self.accelerator.save(ema_state_dict, model_path)
 
-            self.accelerator.print(f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
-
+            self.accelerator.print(
+                f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
