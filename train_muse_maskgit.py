@@ -610,6 +610,10 @@ def main():
             raise ValueError(
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
             )
+            
+            
+    # freeze VAE before parsing to transformer
+    vae.requires_grad_(False)
 
     # then you plug the vae and transformer into your MaskGit like so:
 
