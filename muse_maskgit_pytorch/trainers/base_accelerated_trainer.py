@@ -265,29 +265,40 @@ class BaseAcceleratedTrainer(nn.Module):
 
     def log_validation_images(self, images, step, prompts=None):
         if prompts:
-            self.print(f"Logging with prompts: {prompts}")
+            self.print(f"\nStep: {step} | Logging with prompts: {prompts}")
         if self.validation_image_scale != 1:
-            # Feel free to make pr for better solution!
-            output_size = (
-                int(images[0].size[0] * self.validation_image_scale),
-                int(images[0].size[1] * self.validation_image_scale),
-            )
-            for i in range(len(images)):
-                images[i] = images[i].resize(output_size)
-        if self.accelerator.is_main_process:
-            for tracker in self.accelerator.trackers:
-                if tracker.name == "tensorboard":
-                    np_images = np.stack([np.asarray(img) for img in images])
-                    tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
-                elif tracker.name == "wandb":
-                    tracker.log(
-                        {
-                            "validation": [
-                                wandb.Image(image, caption="" if not prompts else prompts[i])
-                                for i, image in enumerate(images)
-                            ]
-                        }
-                    )
+            # Calculate the new height based on the scale factor
+            new_height = int(images[0].shape[0] * self.validation_image_scale)
+
+            # Calculate the aspect ratio of the original image
+            aspect_ratio = images[0].shape[1] / images[0].shape[0]
+
+            # Calculate the new width based on the new height and aspect ratio
+            new_width = int(new_height * aspect_ratio)
+
+            # Resize the images using the new width and height
+            output_size = (new_width, new_height)
+            images_pil = [Image.fromarray(image) for image in images]
+            images_pil_resized = [image_pil.resize(output_size) for image_pil in images_pil]
+            images = [np.array(image_pil) for image_pil in images_pil_resized]
+
+        for tracker in self.accelerator.trackers:
+            if tracker.name == "tensorboard":
+                np_images = np.stack([np.asarray(img) for img in images])
+                tracker.writer.add_images(
+                    "validation", np_images, step, dataformats="NHWC"
+                )
+            if tracker.name == "wandb":
+                tracker.log(
+                    {
+                        "validation": [
+                            wandb.Image(
+                                image, caption="" if not prompts else prompts[i]
+                            )
+                            for i, image in enumerate(images)
+                        ]
+                    }
+                )
 
     @property
     def device(self):
