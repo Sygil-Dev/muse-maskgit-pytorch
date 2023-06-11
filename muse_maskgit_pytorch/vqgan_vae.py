@@ -1,8 +1,7 @@
 import copy
 from functools import partial, wraps
 from pathlib import Path
-from typing import List
-
+from torch import nn
 import timm
 import torch
 import torch.nn.functional as F
@@ -10,7 +9,6 @@ import torchvision
 from accelerate import Accelerator
 from beartype import beartype
 from einops import rearrange, repeat
-from torch import nn, Tensor
 from torch.autograd import grad as torch_grad
 from vector_quantize_pytorch import VectorQuantize as VQ
 

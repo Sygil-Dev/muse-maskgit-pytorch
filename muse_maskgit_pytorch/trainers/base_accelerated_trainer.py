@@ -1,9 +1,9 @@
 from os import PathLike
 from pathlib import Path
 from shutil import rmtree
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 import accelerate
-
+from PIL import Image
 import numpy as np
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs, DistributedType
