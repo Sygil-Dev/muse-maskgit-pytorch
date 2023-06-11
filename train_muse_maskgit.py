@@ -1,7 +1,8 @@
 import argparse
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
+
 
 import accelerate
 import datasets
@@ -18,6 +19,7 @@ import glob
 import re
 
 from omegaconf import OmegaConf
+from accelerate.utils import ProjectConfiguration
 
 try:
     import torch_xla
@@ -43,12 +45,6 @@ from muse_maskgit_pytorch.dataset import (
     URLTextDataset
 )
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_optimizer
-
-if accelerate.utils.is_rich_available():
-    from rich import print
-    from rich.traceback import install as traceback_install
-
-    traceback_install(show_locals=True, width=120, word_wrap=True)
 
 # remove some unnecessary errors from transformer shown on the console.
 transformers.logging.set_verbosity_error()
@@ -264,6 +260,12 @@ parser.add_argument(
     help="Save the model every N steps.",
 )
 parser.add_argument(
+    "--checkpoint_limit",
+    type=int,
+    default=None,
+    help="Keep only X number of checkpoints and delete the older ones.",
+)
+parser.add_argument(
     "--vq_codebook_size",
     type=int,
     default=256,
@@ -387,12 +389,6 @@ parser.add_argument(
     default=None,
     help="debug logging on",
 )
-parser.add_argument(
-    "--generate_config",
-    action="store_true",
-    help="whether to generate a model config (Recommended for training later)",
-)
-
 
 @dataclass
 class Arguments:
@@ -439,6 +435,7 @@ class Arguments:
     gradient_accumulation_steps: int = 1
     save_results_every: int = 100
     save_model_every: int = 500
+    checkpoint_limit: Union[int, str] = None
     vq_codebook_size: int = 256
     vq_codebook_dim: int = 256
     cond_drop_prob: float = 0.5
@@ -460,20 +457,18 @@ class Arguments:
     use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
-    generate_config: bool = False
 
 def main():
     args = parser.parse_args(namespace=Arguments())
 
+    if accelerate.utils.is_rich_available():
+        from rich import print
+        from rich.traceback import install as traceback_install
+
+        traceback_install(show_locals=args.debug, width=120, word_wrap=True)
+
     if args.config_path:
         print("Using config file and ignoring CLI args")
-
-        if args.generate_config:
-            conf = OmegaConf.structured(args)
-
-            # dumps to file:
-            with open(args.config_path, "w") as f:
-                OmegaConf.save(conf, f)
 
         try:
             conf = OmegaConf.load(args.config_path)
@@ -498,11 +493,17 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
+    project_config = ProjectConfiguration(
+            project_dir=args.logging_dir,
+            total_limit=args.checkpoint_limit,
+            automatic_checkpoint_naming=True,
+        )
+
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
-        project_dir=args.logging_dir,
+        project_config=project_config,
         even_batches=True
     )
 
@@ -549,19 +550,13 @@ def main():
 
     # Load the VAE
     with accelerator.main_process_first():
-        if args.vae_path is not None:
-            load = True
-            accelerator.print(f"Using Muse VQGanVAE, loading from {args.vae_path}")
-            vae = VQGanVAE(
-                dim=args.dim,
-                vq_codebook_dim=args.vq_codebook_dim,
-                vq_codebook_size=args.vq_codebook_size,
-                accelerator=accelerator,
-            )
+        if args.vae_path:
+            print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                accelerator.print("Finding latest checkpoint...")
+                print("Finding latest checkpoint...")
                 orig_vae_path = args.vae_path
+
 
                 if os.path.isfile(args.vae_path) or '.pt' in args.vae_path:
                     # If args.vae_path is a file, split it into directory and filename
@@ -569,33 +564,42 @@ def main():
 
                 checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
                 if checkpoint_files:
-                    latest_checkpoint_file = max(checkpoint_files,key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+                    latest_checkpoint_file = max(checkpoint_files, key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
 
                     # Check if latest checkpoint is empty or unreadable
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
-                        accelerator.print(
-                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
-                            accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                            print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
-                            accelerator.print("No usable checkpoint found.")
-                            load = False
+                            print("No usable checkpoint found.")
                     elif latest_checkpoint_file != orig_vae_path:
-                        accelerator.print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
+                        print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("Using checkpoint specified in vae_path: ", orig_vae_path)
+                        print("Using checkpoint specified in vae_path: ", orig_vae_path)
 
                     args.vae_path = latest_checkpoint_file
                 else:
-                    accelerator.print("No checkpoints found in directory: ", args.vae_path)
-                    load = False
+                    print("No checkpoints found in directory: ", args.vae_path)
             else:
-                accelerator.print("Resuming VAE from: ", args.vae_path)
+                print("Resuming VAE from: ", args.vae_path)
 
-            if load:
-                vae.load(args.vae_path, map="cpu")
+            # use config next to checkpoint if there is one and merge the cli arguments to it
+            # the cli arguments will take priority so we can use it to override any value we want.
+            #if os.path.exists(f"{args.vae_path}.yaml"):
+                #print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
+                #conf = OmegaConf.load(f"{args.vae_path}.yaml")
+                #cli_conf = OmegaConf.from_cli()
+                ## merge the config file and the cli arguments.
+                #conf = OmegaConf.merge(conf, cli_conf)
+
+            vae = VQGanVAE(dim=args.dim, vq_codebook_dim=args.vq_codebook_dim, vq_codebook_size=args.vq_codebook_size, l2_recon_loss=args.use_l2_recon_loss).to(
+                    accelerator.device
+                )
+            vae.load(args.vae_path)
+
 
         elif args.taming_model_path is not None and args.taming_config_path is not None:
             print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
@@ -610,8 +614,8 @@ def main():
             raise ValueError(
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
             )
-            
-            
+
+
     # freeze VAE before parsing to transformer
     vae.requires_grad_(False)
 
@@ -633,6 +637,52 @@ def main():
         t5_name=args.t5_name,
         cache_path=args.cache_path,
     )
+
+    # load the maskgit transformer from disk if we have previously trained one
+    if args.resume_path:
+        if args.latest_checkpoint:
+            accelerator.print("Finding latest checkpoint...")
+            orig_vae_path = args.resume_path
+
+
+            if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
+                # If args.resume_path is a file, split it into directory and filename
+                args.resume_path, _ = os.path.split(args.resume_path)
+
+            checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
+            if checkpoint_files:
+                latest_checkpoint_file = max(checkpoint_files,key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+
+                # Check if latest checkpoint is empty or unreadable
+                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                    accelerator.print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                    if len(checkpoint_files) > 1:
+                        # Use the second last checkpoint as a fallback
+                        latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+                        accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                    else:
+                        accelerator.print("No usable checkpoint found.")
+                elif latest_checkpoint_file != orig_vae_path:
+                    accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
+                else:
+                    accelerator.print("Using checkpoint specified in resume_path: ", orig_vae_path)
+
+                args.resume_path = latest_checkpoint_file
+            else:
+                accelerator.print("No checkpoints found in directory: ", args.resume_path)
+        else:
+            accelerator.print("Resuming MaskGit from: ", args.resume_path)
+
+        # use config next to checkpoint if there is one and merge the cli arguments to it
+        # the cli arguments will take priority so we can use it to override any value we want.
+        if os.path.exists(f"{args.resume_path}.yaml"):
+            accelerator.print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
+            conf = OmegaConf.load(f"{args.resume_path}.yaml")
+            cli_conf = OmegaConf.from_cli()
+            # merge the config file and the cli arguments.
+            conf = OmegaConf.merge(conf, cli_conf)
+
+
     # (2) pass your trained VAE and the base transformer to MaskGit
     maskgit = MaskGit(
         vae=vae,  # vqgan vae

@@ -266,7 +266,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 # log
 
-                self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: "
                                        f"vae loss: {logs['Train/vae_loss']} - "
                                        f"discr loss: {logs['Train/discr_loss']} - "
                                        f"lr: {self.lr_scheduler.get_last_lr()[0]}")
@@ -283,7 +283,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 if (steps % self.save_results_every) == 0:
                     self.log_validation_images(logs, steps)
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
+                    self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
@@ -310,12 +310,12 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                             OmegaConf.save(conf, f"{model_path}.yaml")
 
                     self.accelerator.print(
-                        f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+                        f"[E{epoch + 1}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
 
                 self.steps += 1
 
             if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
-                self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
+                self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: "
                                        f"[STOP EARLY]: Stopping training early...")
                 break
 
@@ -344,4 +344,4 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     OmegaConf.save(conf, f"{model_path}.yaml")
 
             self.accelerator.print(
-                f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+                f"[E{self.num_epochs}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")

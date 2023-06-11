@@ -21,6 +21,7 @@ import glob
 import re
 
 from omegaconf import OmegaConf
+from accelerate.utils import ProjectConfiguration
 
 # disable bitsandbytes welcome message.
 os.environ['BITSANDBYTES_NOWELCOME'] = '1'
@@ -191,6 +192,12 @@ parser.add_argument(
     default=500,
     help="Save the model every this number of steps.",
 )
+parser.add_argument(
+    "--checkpoint_limit",
+    type=int,
+    default=None,
+    help="Keep only X number of checkpoints and delete the older ones.",
+)
 parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
 parser.add_argument(
     "--vq_codebook_dim",
@@ -314,6 +321,7 @@ class Arguments:
     gradient_accumulation_steps: int = 1
     save_results_every: int = 100
     save_model_every: int = 500
+    checkpoint_limit: Union[int, str] = None
     vq_codebook_size: int = 256
     vq_codebook_dim: int = 256
     cond_drop_prob: float = 0.5
@@ -367,11 +375,17 @@ def main():
         except FileNotFoundError:
             print("Could not find config, using default and parsed values...")
 
+    project_config = ProjectConfiguration(
+        project_dir=args.logging_dir,
+        total_limit=args.checkpoint_limit,
+        automatic_checkpoint_naming=True,
+    )
+
     accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
-        project_dir=args.logging_dir,
+        project_config=project_config,
         even_batches=True
     )
     if accelerator.is_main_process:
