@@ -503,13 +503,16 @@ def main():
     # Load the dataset (main process first to download, rest will load from cache)
     with accelerator.main_process_first():
         if args.train_data_dir is not None:
-            dataset = get_dataset_from_dataroot(
-                args.train_data_dir,
-                image_column=args.image_column,
-                caption_column=args.caption_column,
-                save_path=args.dataset_save_path,
-                save=not args.no_cache,
-            )
+            if args.no_cache:
+                pass
+            else:
+                dataset = get_dataset_from_dataroot(
+                    args.train_data_dir,
+                    image_column=args.image_column,
+                    caption_column=args.caption_column,
+                    save_path=args.dataset_save_path,
+                    save=,
+                )
         elif args.dataset_name is not None:
             dataset = load_dataset(
                 args.dataset_name,
