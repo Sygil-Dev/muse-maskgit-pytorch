@@ -70,6 +70,11 @@ parser.add_argument(
     help="Don't do center crop.",
 )
 parser.add_argument(
+        "--random_crop",
+        action="store_true",
+        help="Crop the images at random locations instead of cropping from the center.",
+    )
+parser.add_argument(
     "--no_flip",
     action="store_true",
     help="Don't flip image.",
@@ -189,6 +194,12 @@ parser.add_argument(
     help="ID of HuggingFace dataset to use (cannot be used with --train_data_dir)",
 )
 parser.add_argument(
+    "--hf_split_name",
+    type=str,
+    default="train",
+    help="Subset or split to use from the dataset when using a dataset form HuggingFace.",
+)
+parser.add_argument(
     "--streaming",
     action="store_true",
     help="If using a HuggingFace dataset, whether to stream it or not.",
@@ -254,9 +265,9 @@ parser.add_argument(
     help="Image Size.",
 )
 parser.add_argument(
-    "--vq_codebook_dim", 
-    type=int, 
-    default=256, 
+    "--vq_codebook_dim",
+    type=int,
+    default=256,
     help="VQ Codebook dimensions.")
 parser.add_argument(
     "--cond_drop_prob",
@@ -335,9 +346,9 @@ parser.add_argument(
     help="The path to cache huggingface models",
 )
 parser.add_argument(
-    "--skip_arrow",
+    "--no_cache",
     action="store_true",
-    help="whether to skip converting the dataset to arrow, and to directly fetch data",
+    help="Do not save the dataset pyarrow cache/files to disk to save disk space and reduce the time it takes to launch the training.",
 )
 parser.add_argument(
     "--link",
@@ -401,6 +412,7 @@ class Arguments:
     logging_dir: str = "results/logs"
     vae_path: Optional[str] = None
     dataset_name: Optional[str] = None
+    hf_split_name:  Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
     num_train_steps: int = -1
@@ -425,7 +437,7 @@ class Arguments:
     optimizer: str = "Lion"
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
-    skip_arrow: bool = False
+    no_cache: bool = False
     link: bool = False
     latest_checkpoint: bool = False
     debug: bool = False
@@ -491,15 +503,13 @@ def main():
     # Load the dataset (main process first to download, rest will load from cache)
     with accelerator.main_process_first():
         if args.train_data_dir is not None:
-            if args.skip_arrow:
-                pass
-            else:
-                dataset = get_dataset_from_dataroot(
-                    args.train_data_dir,
-                    image_column=args.image_column,
-                    caption_column=args.caption_column,
-                    save_path=args.dataset_save_path,
-                )
+            dataset = get_dataset_from_dataroot(
+                args.train_data_dir,
+                image_column=args.image_column,
+                caption_column=args.caption_column,
+                save_path=args.dataset_save_path,
+                save=not args.no_cache,
+            )
         elif args.dataset_name is not None:
             dataset = load_dataset(
                 args.dataset_name,
@@ -510,9 +520,9 @@ def main():
             )
             if args.streaming:
                 if args.cache_path:
-                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[args.hf_split_name]
                 else:
-                    dataset = load_dataset(args.dataset_name)["train"]
+                    dataset = load_dataset(args.dataset_name)[args.hf_split_name]
         else:
             raise ValueError("You must pass either train_data_dir or dataset_name (but not both)")
 
@@ -686,14 +696,15 @@ def main():
 
     # Create the dataset objects
     with accelerator.main_process_first():
-        if args.skip_arrow and args.train_data_dir:
+        if args.no_cache and args.train_data_dir:
             dataset = LocalTextImageDataset(
                 args.train_data_dir,
                 args.image_size,
                 tokenizer=transformer.tokenizer,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
+                random_crop=args.random_crop if args.random_crop else False,
             )
         elif args.link:
             if not args.dataset_name:
@@ -735,11 +746,16 @@ def main():
         args.use_8bit_adam, args.optimizer, set(transformer.parameters()), args.lr, args.weight_decay
     )
 
+    if args.num_train_steps > 0:
+        num_lr_steps = args.num_train_steps * args.gradient_accumulation_steps
+    else:
+        num_lr_steps = args.num_epochs * len(dataloader)
+
     scheduler: SchedulerType = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-        num_training_steps=args.num_train_steps * args.gradient_accumulation_steps,
+        num_training_steps=num_lr_steps,
         num_cycles=args.num_cycles,
         power=args.scheduler_power,
     )

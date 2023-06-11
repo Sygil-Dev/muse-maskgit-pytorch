@@ -104,12 +104,12 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         # optimizers
         self.optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
         self.discr_optim = get_optimizer(use_8bit_adam, optimizer, discr_parameters, lr, weight_decay)
-
+        
         if self.num_train_steps > 0:
             self.num_lr_steps = self.num_train_steps * self.gradient_accumulation_steps
         else:
             self.num_lr_steps = self.num_epochs * len(self.dl)
-
+        
         self.lr_scheduler: LRScheduler = get_scheduler(
             lr_scheduler_type,
             optimizer=self.optim,
@@ -288,8 +288,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 if (steps % self.save_results_every) == 0:
                     self.log_validation_images(logs, steps)
-                    self.accelerator.print(
-                        f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
+                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
