@@ -176,35 +176,34 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         )
         self.accelerator.save(pkg, path)
 
-    def log_validation_images(self, models_to_evaluate, logs, steps):
+    def log_validation_images(self, logs, steps):
         log_imgs = []
-        prompts = ["vae"] if len(models_to_evaluate) == 1 else ["vae", "ema"]
-        for model, filename in models_to_evaluate:
-            model.eval()
+        self.model.eval()
 
-            try:
-                valid_data = next(self.valid_dl_iter)
-            except StopIteration:
-                self.valid_dl_iter = iter(self.valid_dl)
-                valid_data = next(self.valid_dl_iter)
-                
-            valid_data = valid_data.to(self.device)
+        try:
+            valid_data = next(self.valid_dl_iter)
+        except StopIteration:
+            self.valid_dl_iter = iter(self.valid_dl)
+            valid_data = next(self.valid_dl_iter)
 
-            recons = model(valid_data, return_recons=True)
+        valid_data = valid_data.to(self.device)
 
-            # else save a grid of images
+        recons = self.model(valid_data, return_recons=True)
 
-            imgs_and_recons = torch.stack((valid_data, recons), dim=0)
-            imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
+        # else save a grid of images
 
-            imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
-            grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+        imgs_and_recons = torch.stack((valid_data, recons), dim=0)
+        imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
 
-            logs["reconstructions"] = grid
-            save_file = str(self.results_dir / f"{filename}.png")
-            save_image(grid, save_file)
-            log_imgs.append(Image.open(save_file))
-        super().log_validation_images(log_imgs, steps, prompts=prompts)
+        imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
+        grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+
+        logs["reconstructions"] = grid
+        save_file = str(self.results_dir / f"{steps}.png")
+        save_image(grid, save_file)
+        log_imgs.append(Image.open(save_file))
+        super().log_validation_images(log_imgs, steps, prompts=["vae"])
+        self.model.train()
 
     def train(self):
         self.steps = self.steps + 1
@@ -289,12 +288,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 # sample results every so often
 
                 if (steps % self.save_results_every) == 0:
-                    vaes_to_evaluate = ((self.model, str(steps)),)
-
-                    if self.use_ema:
-                        vaes_to_evaluate = ((ema_model.ema_model, f"{steps}.ema"),) + vaes_to_evaluate
-
-                    self.log_validation_images(vaes_to_evaluate, logs, steps)
+                    self.log_validation_images(logs, steps)
                     self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
 
                 # save model every so often
