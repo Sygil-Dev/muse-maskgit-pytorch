@@ -139,6 +139,12 @@ parser.add_argument(
     help="Name of the huggingface dataset used.",
 )
 parser.add_argument(
+    "--hf_split_name",
+    type=str,
+    default="train",
+    help="Subset or split to use from the dataset when using a dataset form HuggingFace.",
+)
+parser.add_argument(
     "--streaming",
     action="store_true",
     help="Whether to stream the huggingface dataset",
@@ -256,9 +262,9 @@ parser.add_argument(
     help="The path to cache huggingface models",
 )
 parser.add_argument(
-    "--skip_arrow",
+    "--no_cache",
     action="store_true",
-    help="Whether to skip saving the dataset to Arrow files",
+    help="Do not save the dataset pyarrow cache/files to disk to save disk space and reduce the time it takes to launch the training.",
 )
 parser.add_argument(
     "--latest_checkpoint",
@@ -318,7 +324,7 @@ class Arguments:
     optimizer: str = "Lion"
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
-    skip_arrow: bool = False
+    no_cache: bool = False
     latest_checkpoint: bool = False
     debug: bool = False
     config_path: Optional[str] = None
@@ -376,7 +382,7 @@ def main():
             image_column=args.image_column,
             caption_column=args.caption_column,
             save_path=args.dataset_save_path,
-            save=not args.skip_arrow
+            save=not args.no_cache
         )
     elif args.dataset_name:
         if args.cache_path:
@@ -392,9 +398,9 @@ def main():
                 print("Dataset doesn't support streaming, disabling streaming")
                 args.streaming = False
                 if args.cache_path:
-                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[args.hf_split_name]
                 else:
-                    dataset = load_dataset(args.dataset_name)["train"]
+                    dataset = load_dataset(args.dataset_name)[args.hf_split_name]
 
     if args.resume_path is not None:
         load = True
@@ -476,7 +482,7 @@ def main():
             accelerator=accelerator,
 
         )
-        
+
         current_step = 0
 
     dataset = ImageDataset(
