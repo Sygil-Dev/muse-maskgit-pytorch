@@ -70,6 +70,11 @@ parser.add_argument(
     help="Don't do center crop.",
 )
 parser.add_argument(
+        "--random_crop",
+        action="store_true",
+        help="Crop the images at random locations instead of cropping from the center.",
+    )
+parser.add_argument(
     "--no_flip",
     action="store_true",
     help="Don't flip image.",
@@ -698,7 +703,8 @@ def main():
                 tokenizer=transformer.tokenizer,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
+                random_crop=args.random_crop if args.random_crop else False,
             )
         elif args.link:
             if not args.dataset_name:
