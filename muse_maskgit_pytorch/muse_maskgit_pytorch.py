@@ -11,7 +11,6 @@ import torchvision.transforms as T
 from accelerate import Accelerator
 from beartype import beartype
 from einops import rearrange, repeat
-from rich import inspect
 from torch import einsum, nn, isnan
 from tqdm.auto import tqdm
 from transformers import T5EncoderModel, T5Tokenizer
