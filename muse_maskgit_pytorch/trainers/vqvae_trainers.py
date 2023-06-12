@@ -7,6 +7,7 @@ from PIL import Image
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
+from tqdm import tqdm
 from omegaconf import OmegaConf
 
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import (
@@ -156,6 +157,15 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             )
             self.ema_model = accelerator.prepare(self.ema_model)
 
+
+        if not self.on_tpu:
+            if self.num_train_steps <= 0:
+                self.training_bar = tqdm(initial=int(self.steps.item()), total=len(self.dl) * self.num_epochs)
+            else:
+                self.training_bar = tqdm(initial=int(self.steps.item()), total=self.num_train_steps)
+
+            self.info_bar = tqdm(total=0, bar_format='{desc}')
+
     def load(self, path):
         pkg = super().load(path)
         self.discr_optim.load_state_dict(pkg["discr_optim"])
@@ -265,11 +275,17 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     self.discr_optim.step()
 
                 # log
-
-                self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: "
-                                       f"vae loss: {logs['Train/vae_loss']} - "
-                                       f"discr loss: {logs['Train/discr_loss']} - "
-                                       f"lr: {self.lr_scheduler.get_last_lr()[0]}")
+                if self.on_tpu:
+                    self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: "
+                                           f"vae loss: {logs['Train/vae_loss']} - "
+                                           f"discr loss: {logs['Train/discr_loss']} - "
+                                           f"lr: {self.lr_scheduler.get_last_lr()[0]}")
+                else:
+                    self.training_bar.update()
+                    self.info_bar.set_description_str(f"[E{epoch + 1}][{steps:05d}]: "
+                                           f"vae loss: {logs['Train/vae_loss']} - "
+                                           f"discr loss: {logs['Train/discr_loss']} - "
+                                           f"lr: {self.lr_scheduler.get_last_lr()[0]}")
 
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
                 self.accelerator.log(logs, step=steps)
