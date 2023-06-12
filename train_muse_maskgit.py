@@ -8,7 +8,6 @@ import datasets
 import diffusers
 from rich import inspect
 
-import torch  # noqa: F401
 import transformers
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
@@ -50,6 +49,12 @@ if accelerate.utils.is_rich_available():
     from rich.traceback import install as traceback_install
 
     traceback_install(show_locals=True, width=120, word_wrap=True)
+
+# remove some unnecessary errors from transformer shown on the console.
+transformers.logging.set_verbosity_error()
+
+# disable bitsandbytes welcome message.
+os.environ['BITSANDBYTES_NOWELCOME'] = '1'
 
 # Create the parser
 parser = argparse.ArgumentParser()
@@ -356,9 +361,20 @@ parser.add_argument(
     help="whether to load a dataset with links instead of image (image column becomes URL column)",
 )
 parser.add_argument(
-        "--latest_checkpoint",
-        action="store_true",
-        help="Automatically find and use the latest checkpoint in the folder.",
+    "--latest_checkpoint",
+    action="store_true",
+    help="Automatically find and use the latest checkpoint in the folder.",
+)
+parser.add_argument(
+    "--do_not_save_config",
+    action="store_true",
+    default=False,
+    help="Generate example YAML configuration file",
+)
+parser.add_argument(
+    "--use_l2_recon_loss",
+    action="store_true",
+    help="Use F.mse_loss instead of F.l1_loss.",
     )
 parser.add_argument(
     "--debug",
@@ -412,7 +428,7 @@ class Arguments:
     logging_dir: str = "results/logs"
     vae_path: Optional[str] = None
     dataset_name: Optional[str] = None
-    hf_split_name:  Optional[str] = None
+    hf_split_name: Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
     num_train_steps: int = -1
@@ -440,10 +456,11 @@ class Arguments:
     no_cache: bool = False
     link: bool = False
     latest_checkpoint: bool = False
+    do_not_save_config: bool = False
+    use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
     generate_config: bool = False
-
 
 def main():
     args = parser.parse_args(namespace=Arguments())
@@ -497,7 +514,9 @@ def main():
 
     if accelerator.is_main_process:
         accelerator.print(f"Preparing MaskGit for training on {accelerator.device.type}")
-        inspect(args, docs=False)
+        if args.debug:
+            inspect(args, docs=False)
+
         accelerate.utils.set_seed(args.seed)
 
     # Load the dataset (main process first to download, rest will load from cache)
@@ -511,7 +530,6 @@ def main():
                     image_column=args.image_column,
                     caption_column=args.caption_column,
                     save_path=args.dataset_save_path,
-                    save=,
                 )
         elif args.dataset_name is not None:
             dataset = load_dataset(
@@ -551,8 +569,7 @@ def main():
 
                 checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
                 if checkpoint_files:
-                    latest_checkpoint_file = max(checkpoint_files,
-                                                 key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                    latest_checkpoint_file = max(checkpoint_files,key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
 
                     # Check if latest checkpoint is empty or unreadable
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
@@ -560,8 +577,7 @@ def main():
                             f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                         key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
                             accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
                             accelerator.print("No usable checkpoint found.")
@@ -594,6 +610,10 @@ def main():
             raise ValueError(
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
             )
+            
+            
+    # freeze VAE before parsing to transformer
+    vae.requires_grad_(False)
 
     # then you plug the vae and transformer into your MaskGit like so:
 
@@ -818,7 +838,8 @@ def main():
         clear_previous_experiments=args.clear_previous_experiments,
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
-        num_epochs=args.num_epochs
+        num_epochs=args.num_epochs,
+        args=args,
     )
 
     # Prepare the trainer for distributed training
