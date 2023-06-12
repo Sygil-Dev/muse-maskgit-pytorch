@@ -282,6 +282,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                                            f"lr: {self.lr_scheduler.get_last_lr()[0]}")
                 else:
                     self.training_bar.update()
+                    # Note: we had to remove {proc_label} from the description
+                    # to short it so it doenst go beyond one line on each step.
                     self.info_bar.set_description_str(f"[E{epoch + 1}][{steps:05d}]: "
                                            f"vae loss: {logs['Train/vae_loss']} - "
                                            f"discr loss: {logs['Train/discr_loss']} - "
@@ -298,12 +300,15 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 # sample results every so often
 
                 if (steps % self.save_results_every) == 0:
+                    self.accelerator.print(f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
                     self.log_validation_images(logs, steps)
-                    self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
                 if self.is_main_process and (steps % self.save_model_every) == 0:
+                    self.accelerator.print(
+                        f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                     file_name = f"vae.{steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
                     model_path = str(self.results_dir / file_name)
@@ -325,19 +330,19 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                             conf = OmegaConf.create(vars(self.args))
                             OmegaConf.save(conf, f"{model_path}.yaml")
 
-                    self.accelerator.print(
-                        f"[E{epoch + 1}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
-
                 self.steps += 1
 
             if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
-                self.accelerator.print(f"[E{epoch + 1}][{steps:05d}]{proc_label}: "
+                self.accelerator.print(f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: "
                                        f"[STOP EARLY]: Stopping training early...")
                 break
 
         # Loop finished, save model
         self.accelerator.wait_for_everyone()
         if self.is_main_process:
+            self.accelerator.print(
+                f"[E{self.num_epochs}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+
             state_dict = self.accelerator.unwrap_model(self.model).state_dict()
             file_name = f"vae.{steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
             model_path = str(self.results_dir / file_name)
@@ -359,5 +364,3 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     conf = OmegaConf.create(vars(self.args))
                     OmegaConf.save(conf, f"{model_path}.yaml")
 
-            self.accelerator.print(
-                f"[E{self.num_epochs}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
