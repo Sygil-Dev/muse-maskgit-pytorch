@@ -1,9 +1,7 @@
-from attn.ein_attn import Attention as EinAttn
-from attn.sdp_attn import Attention as SDPAttn
-from attn.xformers_attn import Attention as XformersAttn
+from muse_maskgit_pytorch.attn.ein_attn import Attention as EinAttn
+from muse_maskgit_pytorch.attn.xformers_attn import Attention as XformersAttn
 import torch
 from torch import FloatTensor, BoolTensor, manual_seed, randn, arange, allclose, no_grad
-from torch.backends.cuda import sdp_kernel
 from torch.nn.functional import pad
 
 device = torch.device('cuda')
