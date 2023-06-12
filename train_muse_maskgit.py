@@ -655,21 +655,21 @@ def main():
 
                 # Check if latest checkpoint is empty or unreadable
                 if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
-                    accelerator.print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                    accelerator.print(f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable.")
                     if len(checkpoint_files) > 1:
                         # Use the second last checkpoint as a fallback
                         latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
-                        accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                        accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("No usable checkpoint found.")
+                        accelerator.print("No usable MaskGit checkpoint found.")
                 elif latest_checkpoint_file != orig_vae_path:
                     accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
                 else:
-                    accelerator.print("Using checkpoint specified in resume_path: ", orig_vae_path)
+                    accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
 
                 args.resume_path = latest_checkpoint_file
             else:
-                accelerator.print("No checkpoints found in directory: ", args.resume_path)
+                accelerator.print("No MaskGit checkpoints found in directory: ", args.resume_path)
         else:
             accelerator.print("Resuming MaskGit from: ", args.resume_path)
 
