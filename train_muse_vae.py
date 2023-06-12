@@ -1,6 +1,6 @@
 import argparse
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 from datasets import load_dataset
 
