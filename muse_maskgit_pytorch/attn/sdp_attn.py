@@ -1,12 +1,15 @@
-from torch import nn, FloatTensor, BoolTensor
+from typing import Optional
+
 import torch
 import torch.nn.functional as F
-from torch.nn.functional import scaled_dot_product_attention
 from einops import rearrange, repeat
-from typing import Optional
+from torch import BoolTensor, FloatTensor, nn
+from torch.nn.functional import scaled_dot_product_attention
+
 
 def l2norm(t):
     return F.normalize(t, dim=-1)
+
 
 class LayerNorm(nn.Module):
     def __init__(self, dim):
@@ -16,6 +19,7 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
+
 
 class Attention(nn.Module):
     def __init__(self, dim, dim_head=64, heads=8, cross_attend=False, scale=8):
@@ -31,14 +35,16 @@ class Attention(nn.Module):
         self.to_q = nn.Linear(dim, inner_dim, bias=False)
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
 
-        typical_scale = dim_head ** -.5
-        scale_ratio = scale/typical_scale
+        typical_scale = dim_head**-0.5
+        scale_ratio = scale / typical_scale
         self.q_scale = nn.Parameter(torch.full((dim_head,), scale_ratio))
         self.k_scale = nn.Parameter(torch.ones(dim_head))
 
         self.to_out = nn.Linear(inner_dim, dim, bias=False)
 
-    def forward(self, x: FloatTensor, context: Optional[FloatTensor]=None, context_mask: Optional[BoolTensor]=None):
+    def forward(
+        self, x: FloatTensor, context: Optional[FloatTensor] = None, context_mask: Optional[BoolTensor] = None
+    ):
         assert (context is None) != self.cross_attend
 
         h = self.heads

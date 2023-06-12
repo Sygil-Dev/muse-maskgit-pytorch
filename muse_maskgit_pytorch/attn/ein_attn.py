@@ -1,14 +1,17 @@
-from torch import einsum, nn
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from torch import einsum, nn
+
 
 # helpers
 def exists(val):
     return val is not None
 
+
 def l2norm(t):
     return F.normalize(t, dim=-1)
+
 
 class LayerNorm(nn.Module):
     def __init__(self, dim):
@@ -18,6 +21,7 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
+
 
 class Attention(nn.Module):
     def __init__(self, dim, dim_head=64, heads=8, cross_attend=False, scale=8):

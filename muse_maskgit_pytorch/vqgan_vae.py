@@ -1,7 +1,7 @@
 import copy
 from functools import partial, wraps
 from pathlib import Path
-from torch import nn
+
 import timm
 import torch
 import torch.nn.functional as F
@@ -9,6 +9,7 @@ import torchvision
 from accelerate import Accelerator
 from beartype import beartype
 from einops import rearrange, repeat
+from torch import nn
 from torch.autograd import grad as torch_grad
 from vector_quantize_pytorch import VectorQuantize as VQ
 
@@ -474,7 +475,7 @@ class VQGanVAE(nn.Module):
         return_discr_loss=False,
         return_recons=False,
         add_gradient_penalty=True,
-        relu_loss=True
+        relu_loss=True,
     ):
         batch, channels, height, width, device = *img.shape, img.device
 
@@ -581,7 +582,12 @@ class VQGanVAE(nn.Module):
         # commit loss is loss in quanitizing in vq mse
         # gan loss is
         if relu_loss:
-            loss = F.relu(recon_loss) + F.relu(perceptual_loss) + F.relu(commit_loss) + F.relu(adaptive_weight) * F.relu(gen_loss)
+            loss = (
+                F.relu(recon_loss)
+                + F.relu(perceptual_loss)
+                + F.relu(commit_loss)
+                + F.relu(adaptive_weight) * F.relu(gen_loss)
+            )
         else:
             loss = recon_loss + perceptual_loss + commit_loss + adaptive_weight * gen_loss
 
