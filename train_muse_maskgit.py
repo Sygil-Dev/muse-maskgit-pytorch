@@ -17,6 +17,7 @@ from torch.optim import Optimizer
 import os
 import glob
 import re
+import wandb
 
 from omegaconf import OmegaConf
 from accelerate.utils import ProjectConfiguration
@@ -155,6 +156,25 @@ parser.add_argument(
         'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
         ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
     ),
+)
+parser.add_argument(
+    "--project_name",
+    type=str,
+    default="muse_maskgit",
+    help=("Name to use for the project to identify it when saved to a tracker such as wandb or tensorboard."),
+)
+parser.add_argument(
+    "--run_name",
+    type=str,
+    default=None,
+    help=("Name to use for the run to identify it when saved to a tracker such"
+          " as wandb or tensorboard. If not specified a random one will be generated."),
+)
+parser.add_argument(
+    "--wandb_user",
+    type=str,
+    default=None,
+    help=("Specify the name for the user or the organization in which the project will be saved when using wand."),
 )
 parser.add_argument(
     "--mixed_precision",
@@ -673,21 +693,21 @@ def main():
 
                 # Check if latest checkpoint is empty or unreadable
                 if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
-                    accelerator.print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                    accelerator.print(f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable.")
                     if len(checkpoint_files) > 1:
                         # Use the second last checkpoint as a fallback
                         latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
-                        accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                        accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("No usable checkpoint found.")
+                        accelerator.print("No usable MaskGit checkpoint found.")
                 elif latest_checkpoint_file != orig_vae_path:
                     accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
                 else:
-                    accelerator.print("Using checkpoint specified in resume_path: ", orig_vae_path)
+                    accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
 
                 args.resume_path = latest_checkpoint_file
             else:
-                accelerator.print("No checkpoints found in directory: ", args.resume_path)
+                accelerator.print("No MaskGit checkpoints found in directory: ", args.resume_path)
         else:
             accelerator.print("Resuming MaskGit from: ", args.resume_path)
 
@@ -878,7 +898,17 @@ def main():
             )
 
     if accelerator.is_main_process:
-        accelerator.init_trackers("muse_maskgit", config=vars(args))
+        accelerator.init_trackers(
+            args.project_name,
+            config=vars(args),
+            init_kwargs={
+                "wandb":{
+                    "entity": f"{args.wandb_user or wandb.api.default_entity}",
+                    "name": args.run_name,
+                    },
+            }
+
+        )
 
     # Create the trainer
     accelerator.wait_for_everyone()
