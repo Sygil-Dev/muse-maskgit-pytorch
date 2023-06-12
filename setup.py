@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="muse-maskgit-pytorch",
@@ -17,6 +17,13 @@ setup(
         "attention mechanism",
         "text-to-image",
     ],
+    extras_require={
+        "dev": [
+            "pre-commit>=3.3.2",
+            "black>=23.3.0",
+            "ruff>=0.0.272",
+        ]
+    },
     install_requires=[
         "accelerate",
         "diffusers",
