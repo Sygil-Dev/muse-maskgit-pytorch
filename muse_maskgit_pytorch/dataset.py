@@ -28,6 +28,7 @@ import requests
 from io import BytesIO
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+pImage.MAX_IMAGE_PIXELS = None
 
 
 class ImageDataset(Dataset):
