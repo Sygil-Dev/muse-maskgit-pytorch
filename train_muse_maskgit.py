@@ -10,13 +10,14 @@ import accelerate
 import datasets
 import diffusers
 import transformers
-import wandb
 from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
 from omegaconf import OmegaConf
 from rich import inspect
 from torch.optim import Optimizer
+
+import wandb
 
 try:
     import torch_xla
