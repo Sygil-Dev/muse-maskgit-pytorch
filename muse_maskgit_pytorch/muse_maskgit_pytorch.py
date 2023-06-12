@@ -19,6 +19,14 @@ from .t5 import DEFAULT_T5_NAME, get_encoded_dim, get_model_and_tokenizer, t5_en
 from .vqgan_vae import VQGanVAE
 from .vqgan_vae_taming import VQGanVAETaming
 
+from .attn import ein_attn, sdp_attn
+
+try:
+    from .attn import xformers_attn
+    xformer_attn = True
+except ImportError:
+    xformer_attn = False
+
 
 # helpers
 def exists(val):
@@ -93,79 +101,43 @@ def FeedForward(dim, mult=4):
     )
 
 
-class Attention(nn.Module):
-    def __init__(self, dim, dim_head=64, heads=8, cross_attend=False, scale=8):
-        super().__init__()
-        self.scale = scale
-        self.heads = heads
-        inner_dim = dim_head * heads
-
-        self.cross_attend = cross_attend
-        self.norm = LayerNorm(dim)
-
-        self.null_kv = nn.Parameter(torch.randn(2, heads, 1, dim_head))
-
-        self.to_q = nn.Linear(dim, inner_dim, bias=False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
-
-        self.q_scale = nn.Parameter(torch.ones(dim_head))
-        self.k_scale = nn.Parameter(torch.ones(dim_head))
-
-        self.to_out = nn.Linear(inner_dim, dim, bias=False)
-
-    def forward(self, x, context=None, context_mask=None):
-        assert not (exists(context) ^ self.cross_attend)
-
-        h = self.heads
-        x = self.norm(x)
-
-        kv_input = context if self.cross_attend else x
-
-        q, k, v = (self.to_q(x), *self.to_kv(kv_input).chunk(2, dim=-1))
-
-        q, k, v = map(lambda t: rearrange(t, "b n (h d) -> b h n d", h=h), (q, k, v))
-
-        nk, nv = self.null_kv
-        nk, nv = map(lambda t: repeat(t, "h 1 d -> b h 1 d", b=x.shape[0]), (nk, nv))
-
-        k = torch.cat((nk, k), dim=-2)
-        v = torch.cat((nv, v), dim=-2)
-
-        q, k = map(l2norm, (q, k))
-        q = q * self.q_scale
-        k = k * self.k_scale
-
-        sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
-
-        if exists(context_mask):
-            context_mask = rearrange(context_mask, "b j -> b 1 1 j")
-            context_mask = F.pad(context_mask, (1, 0), value=True)
-
-            mask_value = -torch.finfo(sim.dtype).max
-            sim = sim.masked_fill(~context_mask, mask_value)
-
-        attn = sim.softmax(dim=-1)
-        out = einsum("b h i j, b h j d -> b h i d", attn, v)
-
-        out = rearrange(out, "b h n d -> b n (h d)")
-        return self.to_out(out)
-
-
 class TransformerBlocks(nn.Module):
-    def __init__(self, *, dim, depth, dim_head=64, heads=8, ff_mult=4):
+    def __init__(self, *, dim, depth, dim_head=64, heads=8, ff_mult=4, flash=True, xformers=False):
         super().__init__()
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(
-                nn.ModuleList(
-                    [
-                        Attention(dim=dim, dim_head=dim_head, heads=heads),
-                        Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
-                        FeedForward(dim=dim, mult=ff_mult),
-                    ]
+            if flash:
+                if xformers and xformer_attn:
+                    self.layers.append(
+                        nn.ModuleList(
+                            [
+                                xformers_attn.Attention(dim=dim, dim_head=dim_head, heads=heads),
+                                xformers_attn.Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
+                                FeedForward(dim=dim, mult=ff_mult),
+                            ]
+                        )
+                    )
+                else:
+                    self.layers.append(
+                        nn.ModuleList(
+                            [
+                                sdp_attn.Attention(dim=dim, dim_head=dim_head, heads=heads),
+                                sdp_attn.Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
+                                FeedForward(dim=dim, mult=ff_mult),
+                            ]
+                        )
+                    )
+            else:
+                self.layers.append(
+                    nn.ModuleList(
+                        [
+                            ein_attn.Attention(dim=dim, dim_head=dim_head, heads=heads),
+                            ein_attn.Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
+                            FeedForward(dim=dim, mult=ff_mult),
+                        ]
+                    )
                 )
-            )
 
         self.norm = LayerNorm(dim)
 

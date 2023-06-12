@@ -389,6 +389,12 @@ parser.add_argument(
     default=None,
     help="debug logging on",
 )
+parser.add_argument(
+    "--attention_type",
+    type=str,
+    default="flash",
+    help="what type of attention to use [ein, flash, xformers] | Default: flash",
+)
 
 @dataclass
 class Arguments:
@@ -457,6 +463,8 @@ class Arguments:
     use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
+    attention_type: str = "flash"
+
 
 def main():
     args = parser.parse_args(namespace=Arguments())
@@ -557,7 +565,6 @@ def main():
                 print("Finding latest checkpoint...")
                 orig_vae_path = args.vae_path
 
-
                 if os.path.isfile(args.vae_path) or '.pt' in args.vae_path:
                     # If args.vae_path is a file, split it into directory and filename
                     args.vae_path, _ = os.path.split(args.vae_path)
@@ -589,17 +596,16 @@ def main():
             # use config next to checkpoint if there is one and merge the cli arguments to it
             # the cli arguments will take priority so we can use it to override any value we want.
             #if os.path.exists(f"{args.vae_path}.yaml"):
-                #print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
-                #conf = OmegaConf.load(f"{args.vae_path}.yaml")
-                #cli_conf = OmegaConf.from_cli()
-                ## merge the config file and the cli arguments.
-                #conf = OmegaConf.merge(conf, cli_conf)
+            #print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
+            #conf = OmegaConf.load(f"{args.vae_path}.yaml")
+            #cli_conf = OmegaConf.from_cli()
+            ## merge the config file and the cli arguments.
+            #conf = OmegaConf.merge(conf, cli_conf)
 
             vae = VQGanVAE(dim=args.dim, vq_codebook_dim=args.vq_codebook_dim, vq_codebook_size=args.vq_codebook_size, l2_recon_loss=args.use_l2_recon_loss).to(
                     accelerator.device
                 )
             vae.load(args.vae_path)
-
 
         elif args.taming_model_path is not None and args.taming_config_path is not None:
             print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
@@ -614,11 +620,6 @@ def main():
             raise ValueError(
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
             )
-            
-            
-    # freeze VAE before parsing to transformer
-    vae.requires_grad_(False)
-
 
     # freeze VAE before parsing to transformer
     vae.requires_grad_(False)
@@ -626,6 +627,18 @@ def main():
     # then you plug the vae and transformer into your MaskGit like so:
 
     # (1) create your transformer / attention network
+    if args.attention_type == "flash":
+        xformers = False
+        flash = True
+    elif args.attention_type == "xformers":
+        xformers = True
+        flash = True
+    elif args.attention_type == "ein":
+        xformers = False
+        flash = False
+    else:
+        raise NotImplementedError(f"Attention of type \"{args.attention_type}\" does not exist")
+
     transformer: MaskGitTransformer = MaskGitTransformer(
         # num_tokens must be same as codebook size above
         num_tokens=args.num_tokens if args.num_tokens else args.vq_codebook_size,
@@ -640,6 +653,8 @@ def main():
         # name of your T5 model configuration
         t5_name=args.t5_name,
         cache_path=args.cache_path,
+        flash=flash,
+        xformers=xformers
     )
 
     # load the maskgit transformer from disk if we have previously trained one
@@ -647,7 +662,6 @@ def main():
         if args.latest_checkpoint:
             accelerator.print("Finding latest checkpoint...")
             orig_vae_path = args.resume_path
-
 
             if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
                 # If args.resume_path is a file, split it into directory and filename
