@@ -184,12 +184,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.accelerator.log(logs, step=steps)
 
                 if not (steps % self.save_model_every):
-                    if self.on_tpu:
-                        self.accelerator.print(f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: "
-                                               f"saving model to {self.results_dir}")
-                    else:
-                        self.accelerator.print(f"\n[E{epoch + 1}]{proc_label}: "
-                                                          f"saving model to {self.results_dir}")
+                    self.accelerator.print(f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: "
+                                           f"saving model to {self.results_dir}")
 
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                     maskgit_save_name = "maskgit_superres" if self.model.cond_image_size else "maskgit"
@@ -209,13 +205,9 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         OmegaConf.save(conf, f"{model_path}.yaml")
 
                     if self.use_ema:
-                        if self.on_tpu:
-                            self.accelerator.print(
-                                f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: "
-                                f"saving EMA model to {self.results_dir}")
-                        else:
-                            self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
-                                                              f"saving EMA model to {self.results_dir}")
+                        self.accelerator.print(
+                            f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: "
+                            f"saving EMA model to {self.results_dir}")
 
                         ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
                         file_name = (
