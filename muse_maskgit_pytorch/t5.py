@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 from os import PathLike
-from typing import List, Optional, Tuple, Union, Dict
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from beartype import beartype

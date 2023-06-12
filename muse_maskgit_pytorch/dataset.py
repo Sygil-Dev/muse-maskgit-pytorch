@@ -1,5 +1,6 @@
 import os
-import random, shutil
+import random
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -8,24 +9,26 @@ from threading import Thread
 import datasets
 import torch
 from datasets import Image, load_from_disk
-from PIL import Image as pImage
-from PIL import ImageFile
+from PIL import (
+    Image as pImage,
+    ImageFile,
+)
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms as T
 
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
-
     from tqdm_loggable.auto import tqdm
 except ImportError:
     from tqdm import tqdm
 
+from io import BytesIO
+
+import requests
 from transformers import T5Tokenizer
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
-import requests
-from io import BytesIO
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 pImage.MAX_IMAGE_PIXELS = None
@@ -41,7 +44,7 @@ class ImageDataset(Dataset):
         center_crop=True,
         stream=False,
         using_taming=False,
-        random_crop = False,
+        random_crop=False,
     ):
         super().__init__()
         self.dataset = dataset
@@ -142,7 +145,7 @@ class URLTextDataset(ImageDataset):
         caption_column="caption",
         flip=True,
         center_crop=True,
-        using_taming=True
+        using_taming=True,
     ):
         super().__init__(
             dataset,
@@ -150,7 +153,7 @@ class URLTextDataset(ImageDataset):
             image_column=image_column,
             flip=flip,
             center_crop=center_crop,
-            using_taming=using_taming
+            using_taming=using_taming,
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
@@ -195,7 +198,9 @@ class URLTextDataset(ImageDataset):
 
 
 class LocalTextImageDataset(Dataset):
-    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False):
+    def __init__(
+        self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False
+    ):
         super().__init__()
         self.tokenizer = tokenizer
         self.using_taming = using_taming
@@ -293,8 +298,12 @@ def save_dataset_with_progress(dataset, save_path):
 
 
 def get_dataset_from_dataroot(
-    data_root, image_column="image", caption_column="caption", save_path="dataset", save=True,
-    ):
+    data_root,
+    image_column="image",
+    caption_column="caption",
+    save_path="dataset",
+    save=True,
+):
     # Check if data_root is a symlink and resolve it to its target location if it is
     if os.path.islink(data_root):
         data_root = os.path.realpath(data_root)
@@ -314,7 +323,9 @@ def get_dataset_from_dataroot(
 
             # Check if data_root is newer than save_path
             if data_root_mtime > save_path_mtime:
-                print("The data_root folder has being updated recently. Removing previously saved dataset and updating it.")
+                print(
+                    "The data_root folder has being updated recently. Removing previously saved dataset and updating it."
+                )
                 shutil.rmtree(save_path, ignore_errors=True)
             else:
                 print("The dataset is up-to-date. Loading...")

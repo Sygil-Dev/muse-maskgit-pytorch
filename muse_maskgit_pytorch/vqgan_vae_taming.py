@@ -1,16 +1,15 @@
 import copy
 import importlib
-from urllib.parse import urlparse
 from math import log, sqrt
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from einops import rearrange
-from omegaconf import OmegaConf, DictConfig
-
+from omegaconf import DictConfig, OmegaConf
 from taming.models.vqgan import VQModel
 from torch import nn
 from tqdm_loggable.auto import tqdm

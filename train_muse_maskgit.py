@@ -1,26 +1,22 @@
 import argparse
+import glob
 import logging
+import os
+import re
 from dataclasses import dataclass
 from typing import Optional, Union
-
 
 import accelerate
 import datasets
 import diffusers
-from rich import inspect
-
 import transformers
+import wandb
+from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
-from torch.optim import Optimizer
-
-import os
-import glob
-import re
-import wandb
-
 from omegaconf import OmegaConf
-from accelerate.utils import ProjectConfiguration
+from rich import inspect
+from torch.optim import Optimizer
 
 try:
     import torch_xla
@@ -41,9 +37,9 @@ from muse_maskgit_pytorch import (
 from muse_maskgit_pytorch.dataset import (
     ImageTextDataset,
     LocalTextImageDataset,
+    URLTextDataset,
     get_dataset_from_dataroot,
     split_dataset_into_dataloaders,
-    URLTextDataset
 )
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_optimizer
 
@@ -51,7 +47,7 @@ from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_optimizer
 transformers.logging.set_verbosity_error()
 
 # disable bitsandbytes welcome message.
-os.environ['BITSANDBYTES_NOWELCOME'] = '1'
+os.environ["BITSANDBYTES_NOWELCOME"] = "1"
 
 # Create the parser
 parser = argparse.ArgumentParser()
@@ -72,10 +68,10 @@ parser.add_argument(
     help="Don't do center crop.",
 )
 parser.add_argument(
-        "--random_crop",
-        action="store_true",
-        help="Crop the images at random locations instead of cropping from the center.",
-    )
+    "--random_crop",
+    action="store_true",
+    help="Crop the images at random locations instead of cropping from the center.",
+)
 parser.add_argument(
     "--no_flip",
     action="store_true",
@@ -167,14 +163,18 @@ parser.add_argument(
     "--run_name",
     type=str,
     default=None,
-    help=("Name to use for the run to identify it when saved to a tracker such"
-          " as wandb or tensorboard. If not specified a random one will be generated."),
+    help=(
+        "Name to use for the run to identify it when saved to a tracker such"
+        " as wandb or tensorboard. If not specified a random one will be generated."
+    ),
 )
 parser.add_argument(
     "--wandb_user",
     type=str,
     default=None,
-    help=("Specify the name for the user or the organization in which the project will be saved when using wand."),
+    help=(
+        "Specify the name for the user or the organization in which the project will be saved when using wand."
+    ),
 )
 parser.add_argument(
     "--mixed_precision",
@@ -291,11 +291,7 @@ parser.add_argument(
     default=256,
     help="Image Size.",
 )
-parser.add_argument(
-    "--vq_codebook_dim",
-    type=int,
-    default=256,
-    help="VQ Codebook dimensions.")
+parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
 parser.add_argument(
     "--cond_drop_prob",
     type=float,
@@ -319,7 +315,7 @@ parser.add_argument(
     type=float,
     default=1.0,
     help="Controls the power of the polynomial decay schedule used by the CosineScheduleWithWarmup scheduler. "
-         "It determines the rate at which the learning rate decreases during the schedule.",
+    "It determines the rate at which the learning rate decreases during the schedule.",
 )
 parser.add_argument(
     "--lr_warmup_steps",
@@ -328,11 +324,11 @@ parser.add_argument(
     help="Number of steps for the warmup in the lr scheduler.",
 )
 parser.add_argument(
-        "--num_cycles",
-        type=int,
-        default=1,
-        help="Number of cycles for the lr scheduler.",
-    )
+    "--num_cycles",
+    type=int,
+    default=1,
+    help="Number of cycles for the lr scheduler.",
+)
 parser.add_argument(
     "--resume_path",
     type=str,
@@ -356,9 +352,9 @@ parser.add_argument(
     type=str,
     default="Adafactor",
     help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion', 'Adafactor', "
-         "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
-         "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
-         "'SWATS', 'Yogi']. Default: Lion",
+    "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
+    "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
+    "'SWATS', 'Yogi']. Default: Lion",
 )
 parser.add_argument(
     "--weight_decay",
@@ -397,7 +393,7 @@ parser.add_argument(
     "--use_l2_recon_loss",
     action="store_true",
     help="Use F.mse_loss instead of F.l1_loss.",
-    )
+)
 parser.add_argument(
     "--debug",
     action="store_true",
@@ -415,6 +411,7 @@ parser.add_argument(
     default="flash",
     help="what type of attention to use [ein, flash, xformers] | Default: flash",
 )
+
 
 @dataclass
 class Arguments:
@@ -522,17 +519,17 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     project_config = ProjectConfiguration(
-            project_dir=args.logging_dir,
-            total_limit=args.checkpoint_limit,
-            automatic_checkpoint_naming=True,
-        )
+        project_dir=args.logging_dir,
+        total_limit=args.checkpoint_limit,
+        automatic_checkpoint_naming=True,
+    )
 
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         project_config=project_config,
-        even_batches=True
+        even_batches=True,
     )
 
     # Get these errors out of the way early
@@ -585,20 +582,27 @@ def main():
                 print("Finding latest checkpoint...")
                 orig_vae_path = args.vae_path
 
-                if os.path.isfile(args.vae_path) or '.pt' in args.vae_path:
+                if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
                     # If args.vae_path is a file, split it into directory and filename
                     args.vae_path, _ = os.path.split(args.vae_path)
 
                 checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
                 if checkpoint_files:
-                    latest_checkpoint_file = max(checkpoint_files, key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                    latest_checkpoint_file = max(
+                        checkpoint_files, key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
+                    )
 
                     # Check if latest checkpoint is empty or unreadable
-                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                        latest_checkpoint_file, os.R_OK
+                    ):
                         print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                            latest_checkpoint_file = max(
+                                checkpoint_files[:-1],
+                                key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1)),
+                            )
                             print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
                             print("No usable checkpoint found.")
@@ -615,16 +619,19 @@ def main():
 
             # use config next to checkpoint if there is one and merge the cli arguments to it
             # the cli arguments will take priority so we can use it to override any value we want.
-            #if os.path.exists(f"{args.vae_path}.yaml"):
-            #print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
-            #conf = OmegaConf.load(f"{args.vae_path}.yaml")
-            #cli_conf = OmegaConf.from_cli()
+            # if os.path.exists(f"{args.vae_path}.yaml"):
+            # print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
+            # conf = OmegaConf.load(f"{args.vae_path}.yaml")
+            # cli_conf = OmegaConf.from_cli()
             ## merge the config file and the cli arguments.
-            #conf = OmegaConf.merge(conf, cli_conf)
+            # conf = OmegaConf.merge(conf, cli_conf)
 
-            vae = VQGanVAE(dim=args.dim, vq_codebook_dim=args.vq_codebook_dim, vq_codebook_size=args.vq_codebook_size, l2_recon_loss=args.use_l2_recon_loss).to(
-                    accelerator.device
-                )
+            vae = VQGanVAE(
+                dim=args.dim,
+                vq_codebook_dim=args.vq_codebook_dim,
+                vq_codebook_size=args.vq_codebook_size,
+                l2_recon_loss=args.use_l2_recon_loss,
+            ).to(accelerator.device)
             vae.load(args.vae_path)
 
         elif args.taming_model_path is not None and args.taming_config_path is not None:
@@ -657,7 +664,7 @@ def main():
         xformers = False
         flash = False
     else:
-        raise NotImplementedError(f"Attention of type \"{args.attention_type}\" does not exist")
+        raise NotImplementedError(f'Attention of type "{args.attention_type}" does not exist')
 
     transformer: MaskGitTransformer = MaskGitTransformer(
         # num_tokens must be same as codebook size above
@@ -674,7 +681,7 @@ def main():
         t5_name=args.t5_name,
         cache_path=args.cache_path,
         flash=flash,
-        xformers=xformers
+        xformers=xformers,
     )
 
     # load the maskgit transformer from disk if we have previously trained one
@@ -683,20 +690,34 @@ def main():
             accelerator.print("Finding latest checkpoint...")
             orig_vae_path = args.resume_path
 
-            if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
+            if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
                 # If args.resume_path is a file, split it into directory and filename
                 args.resume_path, _ = os.path.split(args.resume_path)
 
             checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
             if checkpoint_files:
-                latest_checkpoint_file = max(checkpoint_files,key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+                latest_checkpoint_file = max(
+                    checkpoint_files,
+                    key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt$", x).group(1))
+                    if not x.endswith("ema.pt")
+                    else -1,
+                )
 
                 # Check if latest checkpoint is empty or unreadable
-                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
-                    accelerator.print(f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                    latest_checkpoint_file, os.R_OK
+                ):
+                    accelerator.print(
+                        f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable."
+                    )
                     if len(checkpoint_files) > 1:
                         # Use the second last checkpoint as a fallback
-                        latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+                        latest_checkpoint_file = max(
+                            checkpoint_files[:-1],
+                            key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt$", x).group(1))
+                            if not x.endswith("ema.pt")
+                            else -1,
+                        )
                         accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
                     else:
                         accelerator.print("No usable MaskGit checkpoint found.")
@@ -714,12 +735,13 @@ def main():
         # use config next to checkpoint if there is one and merge the cli arguments to it
         # the cli arguments will take priority so we can use it to override any value we want.
         if os.path.exists(f"{args.resume_path}.yaml"):
-            accelerator.print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
+            accelerator.print(
+                "Config file found, reusing config from it. Use cli arguments to override any desired value."
+            )
             conf = OmegaConf.load(f"{args.resume_path}.yaml")
             cli_conf = OmegaConf.from_cli()
             # merge the config file and the cli arguments.
             conf = OmegaConf.merge(conf, cli_conf)
-
 
     # (2) pass your trained VAE and the base transformer to MaskGit
     maskgit = MaskGit(
@@ -741,7 +763,7 @@ def main():
                 accelerator.print("Finding latest checkpoint...")
                 orig_vae_path = args.resume_path
 
-                if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
+                if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
                     # If args.resume_path is a file, split it into directory and filename
                     args.resume_path, _ = os.path.split(args.resume_path)
 
@@ -752,26 +774,34 @@ def main():
 
                 if checkpoint_files:
                     if args.cond_image_size:
-                        latest_checkpoint_file = max(checkpoint_files,
-                                                     key=lambda x: int(re.search(r'maskgit_superres\.(\d+)\.pt', x).group(1)))
+                        latest_checkpoint_file = max(
+                            checkpoint_files,
+                            key=lambda x: int(re.search(r"maskgit_superres\.(\d+)\.pt", x).group(1)),
+                        )
                     else:
-                        latest_checkpoint_file = max(checkpoint_files,
-                                                     key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                        latest_checkpoint_file = max(
+                            checkpoint_files, key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1))
+                        )
 
                     # Check if latest checkpoint is empty or unreadable
-                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                        latest_checkpoint_file, os.R_OK
+                    ):
                         accelerator.print(
-                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
+                        )
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
                             if args.cond_image_size:
-                                latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                             key=lambda x: int(
-                                                                 re.search(r'maskgit_superres\.(\d+)\.pt', x).group(1)))
+                                latest_checkpoint_file = max(
+                                    checkpoint_files[:-1],
+                                    key=lambda x: int(re.search(r"maskgit_superres\.(\d+)\.pt", x).group(1)),
+                                )
                             else:
-                                latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                             key=lambda x: int(
-                                                                 re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                                latest_checkpoint_file = max(
+                                    checkpoint_files[:-1],
+                                    key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
+                                )
                             accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
                             accelerator.print("No usable checkpoint found.")
@@ -829,7 +859,7 @@ def main():
                 caption_column=args.caption_column,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
             )
         else:
             dataset = ImageTextDataset(
@@ -841,7 +871,7 @@ def main():
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
                 stream=args.streaming,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
             )
 
     # Create the dataloaders
@@ -902,12 +932,11 @@ def main():
             args.project_name,
             config=vars(args),
             init_kwargs={
-                "wandb":{
+                "wandb": {
                     "entity": f"{args.wandb_user or wandb.api.default_entity}",
                     "name": args.run_name,
-                    },
-            }
-
+                },
+            },
         )
 
     # Create the trainer

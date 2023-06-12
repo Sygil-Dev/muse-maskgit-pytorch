@@ -1,24 +1,30 @@
-import torch
-import accelerate
+import argparse
+import glob
+import hashlib
+import os
+import random
+import re
 from dataclasses import dataclass
-from torchvision.utils import save_image
-from datasets import load_dataset, Dataset, Image
-import os, random, hashlib
 from datetime import datetime
+from typing import Optional
+
+import accelerate
+import PIL
+import torch
+from accelerate.utils import ProjectConfiguration
+from datasets import Dataset, Image, load_dataset
+from torchvision.utils import save_image
+from tqdm import tqdm
+
 from muse_maskgit_pytorch import (
     VQGanVAE,
     VQGanVAETaming,
     get_accelerator,
 )
 from muse_maskgit_pytorch.dataset import (
-    get_dataset_from_dataroot,
     ImageDataset,
+    get_dataset_from_dataroot,
 )
-from tqdm import tqdm
-import argparse
-import PIL
-import glob, re
-from accelerate.utils import ProjectConfiguration
 
 # Create the parser
 parser = argparse.ArgumentParser()
@@ -54,9 +60,7 @@ parser.add_argument(
     default=42,
     help="Seed for reproducibility. If set to -1 a random seed will be generated.",
 )
-parser.add_argument(
-    "--valid_frac", type=float, default=0.05, help="validation fraction."
-)
+parser.add_argument("--valid_frac", type=float, default=0.05, help="validation fraction.")
 parser.add_argument(
     "--image_column",
     type=str,
@@ -186,6 +190,7 @@ parser.add_argument(
     help="Use the latest checkpoint using the vae_path folder instead of using just a specific vae_path.",
 )
 
+
 @dataclass
 class Arguments:
     only_save_last_checkpoint: bool = False
@@ -277,16 +282,16 @@ def main():
     args = parser.parse_args(namespace=Arguments())
 
     project_config = ProjectConfiguration(
-            project_dir=args.logging_dir,
-            automatic_checkpoint_naming=True,
-        )
+        project_dir=args.logging_dir,
+        automatic_checkpoint_naming=True,
+    )
 
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         project_config=project_config,
-        even_batches=True
+        even_batches=True,
     )
 
     # set pytorch seed for reproducibility
@@ -308,7 +313,7 @@ def main():
     if args.input_folder:
         # Create dataset from input folder
         extensions = ["jpg", "jpeg", "png", "webp"]
-        exclude_folders = args.exclude_folders.split(',') if args.exclude_folders else []
+        exclude_folders = args.exclude_folders.split(",") if args.exclude_folders else []
 
         filepaths = []
         for root, dirs, files in os.walk(args.input_folder, followlinks=True):
@@ -324,7 +329,7 @@ def main():
 
         if not filepaths:
             print(f"No images with extensions {extensions} found in {args.input_folder}.")
-            sys.exit(1)
+            exit(1)
 
         dataset = Dataset.from_dict({"image": filepaths}).cast_column("image", Image())
 
@@ -333,29 +338,42 @@ def main():
 
     if args.vae_path:
         accelerator.print("Loading Muse VQGanVAE")
-        vae = VQGanVAE(dim=args.dim, vq_codebook_size=args.vq_codebook_size, vq_codebook_dim=args.vq_codebook_dim).to(
-            accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"
-        )
+        vae = VQGanVAE(
+            dim=args.dim, vq_codebook_size=args.vq_codebook_size, vq_codebook_dim=args.vq_codebook_dim
+        ).to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
         if args.latest_checkpoint:
             accelerator.print("Finding latest checkpoint...")
             orig_vae_path = args.vae_path
 
-
-            if os.path.isfile(args.vae_path) or '.pt' in args.vae_path:
+            if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
                 # If args.vae_path is a file, split it into directory and filename
                 args.vae_path, _ = os.path.split(args.vae_path)
 
             checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
             if checkpoint_files:
-                latest_checkpoint_file = max(checkpoint_files,key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+                latest_checkpoint_file = max(
+                    checkpoint_files,
+                    key=lambda x: int(re.search(r"vae\.(\d+)\.pt$", x).group(1))
+                    if not x.endswith("ema.pt")
+                    else -1,
+                )
 
                 # Check if latest checkpoint is empty or unreadable
-                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
-                    accelerator.print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                    latest_checkpoint_file, os.R_OK
+                ):
+                    accelerator.print(
+                        f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
+                    )
                     if len(checkpoint_files) > 1:
                         # Use the second last checkpoint as a fallback
-                        latest_checkpoint_file = max(checkpoint_files[:-1], key=lambda x: int(re.search(r'vae\.(\d+)\.pt$', x).group(1)) if not x.endswith('ema.pt') else -1)
+                        latest_checkpoint_file = max(
+                            checkpoint_files[:-1],
+                            key=lambda x: int(re.search(r"vae\.(\d+)\.pt$", x).group(1))
+                            if not x.endswith("ema.pt")
+                            else -1,
+                        )
                         accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                     else:
                         accelerator.print("No usable checkpoint found.")
@@ -389,7 +407,7 @@ def main():
         image_column=args.image_column,
         center_crop=True if not args.no_center_crop and not args.random_crop else False,
         flip=not args.no_flip,
-        random_crop=args.random_crop if args.random_crop else False
+        random_crop=args.random_crop if args.random_crop else False,
     )
 
     if args.input_image and not args.input_folder:
@@ -397,9 +415,13 @@ def main():
 
         os.makedirs(f"{args.results_dir}/outputs", exist_ok=True)
 
-        save_image(dataset[image_id], f"{args.results_dir}/outputs/input.{str(args.input_image).split('.')[-1]}")
+        save_image(
+            dataset[image_id], f"{args.results_dir}/outputs/input.{str(args.input_image).split('.')[-1]}"
+        )
 
-        _, ids, _ = vae.encode(dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"))
+        _, ids, _ = vae.encode(
+            dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+        )
         recon = vae.decode_from_ids(ids)
         save_image(recon, f"{args.results_dir}/outputs/output.{str(args.input_image).split('.')[-1]}")
 
@@ -410,10 +432,11 @@ def main():
 
         save_image(dataset[image_id], f"{args.results_dir}/outputs/input.png")
 
-        _, ids, _ = vae.encode(dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"))
+        _, ids, _ = vae.encode(
+            dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+        )
         recon = vae.decode_from_ids(ids)
         save_image(recon, f"{args.results_dir}/outputs/output.png")
-
 
     if args.input_folder:
         # Create output directory and save input images and reconstructions as grids
@@ -426,7 +449,9 @@ def main():
                 try:
                     save_image(dataset[i], f"{output_dir}/input.png")
 
-                    _, ids, _ = vae.encode(dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"))
+                    _, ids, _ = vae.encode(
+                        dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+                    )
                     recon = vae.decode_from_ids(ids)
                     save_image(recon, f"{output_dir}/output.png")
 
@@ -435,7 +460,9 @@ def main():
                     output_image = PIL.Image.open(f"{output_dir}/output.png")
 
                     # Create horizontal grid with input and output images
-                    grid_image = PIL.Image.new('RGB', (input_image.width + output_image.width, input_image.height))
+                    grid_image = PIL.Image.new(
+                        "RGB", (input_image.width + output_image.width, input_image.height)
+                    )
                     grid_image.paste(input_image, (0, 0))
                     grid_image.paste(output_image, (input_image.width, 0))
 
@@ -462,7 +489,7 @@ def main():
                 except RuntimeError as e:
                     if "out of memory" in str(e) and retries < args.max_retries:
                         retries += 1
-                        #print(f"Out of Memory. Retry #{retries}")
+                        # print(f"Out of Memory. Retry #{retries}")
                         torch.cuda.empty_cache()
                         torch.cuda.ipc_collect()
                         continue  # Retry the loop
@@ -470,7 +497,6 @@ def main():
                     else:
                         print(f"Skipping image {i} after {retries} retries due to out of memory error")
                         break  # Exit the retry loop after too many retries
-
 
 
 if __name__ == "__main__":

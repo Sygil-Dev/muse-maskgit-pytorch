@@ -11,18 +11,18 @@ import torchvision.transforms as T
 from accelerate import Accelerator
 from beartype import beartype
 from einops import rearrange, repeat
-from torch import einsum, nn, isnan
+from torch import einsum, isnan, nn
 from tqdm.auto import tqdm
 from transformers import T5EncoderModel, T5Tokenizer
 
+from .attn import ein_attn, sdp_attn
 from .t5 import DEFAULT_T5_NAME, get_encoded_dim, get_model_and_tokenizer, t5_encode_text
 from .vqgan_vae import VQGanVAE
 from .vqgan_vae_taming import VQGanVAETaming
 
-from .attn import ein_attn, sdp_attn
-
 try:
     from .attn import xformers_attn
+
     xformer_attn = True
 except ImportError:
     xformer_attn = False
@@ -113,7 +113,9 @@ class TransformerBlocks(nn.Module):
                         nn.ModuleList(
                             [
                                 xformers_attn.Attention(dim=dim, dim_head=dim_head, heads=heads),
-                                xformers_attn.Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
+                                xformers_attn.Attention(
+                                    dim=dim, dim_head=dim_head, heads=heads, cross_attend=True
+                                ),
                                 FeedForward(dim=dim, mult=ff_mult),
                             ]
                         )
@@ -123,7 +125,9 @@ class TransformerBlocks(nn.Module):
                         nn.ModuleList(
                             [
                                 sdp_attn.Attention(dim=dim, dim_head=dim_head, heads=heads),
-                                sdp_attn.Attention(dim=dim, dim_head=dim_head, heads=heads, cross_attend=True),
+                                sdp_attn.Attention(
+                                    dim=dim, dim_head=dim_head, heads=heads, cross_attend=True
+                                ),
                                 FeedForward(dim=dim, mult=ff_mult),
                             ]
                         )

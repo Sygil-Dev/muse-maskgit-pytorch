@@ -1,10 +1,11 @@
-from muse_maskgit_pytorch.attn.ein_attn import Attention as EinAttn
-from muse_maskgit_pytorch.attn.xformers_attn import Attention as XformersAttn
 import torch
-from torch import FloatTensor, BoolTensor, manual_seed, randn, arange, allclose, no_grad
+from torch import BoolTensor, FloatTensor, allclose, arange, manual_seed, no_grad, randn
 from torch.nn.functional import pad
 
-device = torch.device('cuda')
+from muse_maskgit_pytorch.attn.ein_attn import Attention as EinAttn
+from muse_maskgit_pytorch.attn.xformers_attn import Attention as XformersAttn
+
+device = torch.device("cuda")
 dtype = torch.float32
 seed = 42
 
@@ -12,12 +13,12 @@ seed = 42
 vision_dim = 64
 
 attn_init_params = {
-    'dim': vision_dim,
-    'dim_head': 64,
+    "dim": vision_dim,
+    "dim_head": 64,
     # realistically this would be at least 5
-    'heads': 2,
-    'cross_attend': True,
-    'scale': 8,
+    "heads": 2,
+    "cross_attend": True,
+    "scale": 8,
 }
 
 with no_grad():
@@ -33,13 +34,13 @@ with no_grad():
     batch_size = 2
 
     # realistically this would be 64**2 in stable-diffusion
-    vision_tokens = 32**2 # 1024
+    vision_tokens = 32**2  # 1024
 
     # generate rand on-CPU for cross-platform determinism of results
     x: FloatTensor = randn(batch_size, vision_tokens, vision_dim, dtype=dtype).to(device)
 
     # I've said text here simply as an example of something you could cross-attend to
-    text_tokens = 16 # CLIP would be 77
+    text_tokens = 16  # CLIP would be 77
     # for a *general* cross-attention Module:
     # kv_in_dim could differ from q_in_dim, but this attention Module requires x and context to have same dim.
     text_dim = vision_dim
@@ -58,7 +59,16 @@ with no_grad():
     # 0-pad mask to multiple of 8 tokens
     xfo_context_mask = pad(context_mask, (0, extra_tokens_needed))
     # replicate-pad embedding to multiple of 8 tokens (mask will hide the extra tokens)
-    xfo_context = pad(context, (0, 0, 0, extra_tokens_needed,), 'replicate')
+    xfo_context = pad(
+        context,
+        (
+            0,
+            0,
+            0,
+            extra_tokens_needed,
+        ),
+        "replicate",
+    )
 
     ein_result: FloatTensor = ein_attn.forward(x, context, context_mask)
     # sdp attn works, but only supports flash attn when context_mask is None.
@@ -67,9 +77,11 @@ with no_grad():
     xfo_attn: FloatTensor = xfo_attn.forward(x, xfo_context, xfo_context_mask)
 
     # default rtol
-    rtol=1e-5
+    rtol = 1e-5
     # atol would normally be 1e-8
-    atol=5e-7
+    atol = 5e-7
     # assert allclose(ein_result, sdp_result, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
-    assert allclose(ein_result, xfo_attn, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
-    print(f'attention implementations returned equivalent result, to tolerance rtol={rtol}, atol={atol}')
+    assert allclose(
+        ein_result, xfo_attn, rtol=rtol, atol=atol
+    ), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
+    print(f"attention implementations returned equivalent result, to tolerance rtol={rtol}, atol={atol}")
