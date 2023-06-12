@@ -59,16 +59,7 @@ with no_grad():
     # 0-pad mask to multiple of 8 tokens
     xfo_context_mask = pad(context_mask, (0, extra_tokens_needed))
     # replicate-pad embedding to multiple of 8 tokens (mask will hide the extra tokens)
-    xfo_context = pad(
-        context,
-        (
-            0,
-            0,
-            0,
-            extra_tokens_needed,
-        ),
-        "replicate",
-    )
+    xfo_context = pad(context, (0, 0, 0, extra_tokens_needed), "replicate")
 
     ein_result: FloatTensor = ein_attn.forward(x, context, context_mask)
     # sdp attn works, but only supports flash attn when context_mask is None.
@@ -81,7 +72,7 @@ with no_grad():
     # atol would normally be 1e-8
     atol = 5e-7
     # assert allclose(ein_result, sdp_result, rtol=rtol, atol=atol), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
-    assert allclose(
-        ein_result, xfo_attn, rtol=rtol, atol=atol
-    ), f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
-    print(f"attention implementations returned equivalent result, to tolerance rtol={rtol}, atol={atol}")
+    if not allclose(ein_result, xfo_attn, rtol=rtol, atol=atol):
+        raise RuntimeError(
+            f"looks like attention implementations weren't equivalent, to tolerance rtol={rtol}, atol={atol}"
+        )
