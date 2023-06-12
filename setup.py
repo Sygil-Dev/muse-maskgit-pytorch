@@ -39,7 +39,8 @@ setup(
         "tqdm-loggable",
         "vector-quantize-pytorch>=0.10.14",
         "lion-pytorch",
-        "omegaconf"
+        "omegaconf",
+        "xformers>=0.0.20",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
