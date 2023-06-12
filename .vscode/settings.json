@@ -1,0 +1,44 @@
+{
+    "editor.formatOnSaveMode": "file",
+
+    "files.associations": {
+        ".config": "shellscript",
+        ".gitignore": "gitignore",
+        ".vscode/*.json": "jsonc",
+        "*.txt": "plaintext",
+        "requirements*.txt": "pip-requirements",
+        "setup.cfg": "ini",
+    },
+
+    "[json]": {
+        "editor.codeActionsOnSave": {
+            "source.fixAll.sortJSON": false
+        },
+        "editor.defaultFormatter": "vscode.json-language-features",
+        "editor.formatOnSave": true,
+        "editor.tabSize": 4
+    },
+    "[jsonc]": {
+        "editor.codeActionsOnSave": {
+            "source.fixAll.sortJSON": false
+        },
+        "editor.defaultFormatter": "vscode.json-language-features",
+        "editor.formatOnSave": true,
+        "editor.tabSize": 4
+    },
+    "json.format.keepLines": true,
+
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+        }
+    },
+    "python.formatting.provider": "none",
+    "ruff.organizeImports": true,
+    "ruff.args": [ "--line-length=110", "--extend-ignore=F401,F841" ],
+    "black-formatter.args": [ "--line-length", "110" ],
+    "python.linting.flake8Enabled": false,
+    "python.linting.mypyEnabled": false,
+}

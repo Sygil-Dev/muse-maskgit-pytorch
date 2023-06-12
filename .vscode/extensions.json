@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "redhat.vscode-yaml",
+        "codezombiech.gitignore",
+        "ms-python.black-formatter"
+    ]
+}
