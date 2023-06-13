@@ -305,16 +305,15 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 if (steps % self.save_results_every) == 0:
                     self.accelerator.print(
-                        f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saving to {str(self.results_dir)}"
+                        f"\n[E{epoch + 1}][{steps}] | Logging validation images to {str(self.results_dir)}\n"
                     )
+
                     self.log_validation_images(logs, steps)
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
                 if self.is_main_process and (steps % self.save_model_every) == 0:
-                    self.accelerator.print(
-                        f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}"
-                    )
+                    self.accelerator.print(f"\nStep: {steps - 1} | Saving model to {str(self.results_dir)}")
 
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                     file_name = f"vae.{steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
