@@ -138,3 +138,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# setuptools-scm version file
+muse_maskgit_pytorch/_version.py

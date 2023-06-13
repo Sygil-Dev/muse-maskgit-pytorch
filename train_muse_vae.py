@@ -1,8 +1,15 @@
 import argparse
+import glob
+import os
+import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
+from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
+from omegaconf import OmegaConf
+
+import wandb
 
 from muse_maskgit_pytorch import (
     VQGanVAE,
@@ -16,11 +23,8 @@ from muse_maskgit_pytorch.dataset import (
     split_dataset_into_dataloaders,
 )
 
-import os
-import glob
-import re
-
-from omegaconf import OmegaConf, ValidationError
+# disable bitsandbytes welcome message.
+os.environ["BITSANDBYTES_NOWELCOME"] = "1"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--webdataset", type=str, default=None, help="Path to webdataset if using one.")
@@ -44,6 +48,11 @@ parser.add_argument(
     "--no_flip",
     action="store_true",
     help="Don't flip image.",
+)
+parser.add_argument(
+    "--random_crop",
+    action="store_true",
+    help="Crop the images at random locations instead of cropping from the center.",
 )
 parser.add_argument(
     "--dataset_save_path",
@@ -102,6 +111,29 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--project_name",
+    type=str,
+    default="muse_vae",
+    help=("Name to use for the project to identify it when saved to a tracker such as wandb or tensorboard."),
+)
+parser.add_argument(
+    "--run_name",
+    type=str,
+    default=None,
+    help=(
+        "Name to use for the run to identify it when saved to a tracker such"
+        " as wandb or tensorboard. If not specified a random one will be generated."
+    ),
+)
+parser.add_argument(
+    "--wandb_user",
+    type=str,
+    default=None,
+    help=(
+        "Specify the name for the user or the organization in which the project will be saved when using wand."
+    ),
+)
+parser.add_argument(
     "--mixed_precision",
     type=str,
     default="no",
@@ -132,6 +164,12 @@ parser.add_argument(
     type=str,
     default=None,
     help="Name of the huggingface dataset used.",
+)
+parser.add_argument(
+    "--hf_split_name",
+    type=str,
+    default="train",
+    help="Subset or split to use from the dataset when using a dataset form HuggingFace.",
 )
 parser.add_argument(
     "--streaming",
@@ -177,12 +215,14 @@ parser.add_argument(
     default=500,
     help="Save the model every this number of steps.",
 )
-parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
 parser.add_argument(
-    "--vq_codebook_dim",
+    "--checkpoint_limit",
     type=int,
-    default=256,
-    help="VQ Codebook dimensions.")
+    default=None,
+    help="Keep only X number of checkpoints and delete the older ones.",
+)
+parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
+parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
 parser.add_argument(
     "--image_size",
     type=int,
@@ -200,7 +240,7 @@ parser.add_argument(
     type=float,
     default=1.0,
     help="Controls the power of the polynomial decay schedule used by the CosineScheduleWithWarmup scheduler. "
-         "It determines the rate at which the learning rate decreases during the schedule.",
+    "It determines the rate at which the learning rate decreases during the schedule.",
 )
 parser.add_argument(
     "--lr_warmup_steps",
@@ -251,9 +291,9 @@ parser.add_argument(
     help="The path to cache huggingface models",
 )
 parser.add_argument(
-    "--skip_arrow",
+    "--no_cache",
     action="store_true",
-    help="Whether to skip saving the dataset to Arrow files",
+    help="Do not save the dataset pyarrow cache/files to disk to save disk space and reduce the time it takes to launch the training.",
 )
 parser.add_argument(
     "--latest_checkpoint",
@@ -261,12 +301,14 @@ parser.add_argument(
     help="Whether to use the latest checkpoint",
 )
 
+
 @dataclass
 class Arguments:
     only_save_last_checkpoint: bool = False
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
     no_flip: bool = False
+    random_crop: bool = False
     dataset_save_path: Optional[str] = None
     clear_previous_experiments: bool = False
     max_grad_norm: Optional[float] = None
@@ -299,6 +341,7 @@ class Arguments:
     gradient_accumulation_steps: int = 1
     save_results_every: int = 100
     save_model_every: int = 500
+    checkpoint_limit: Union[int, str] = None
     vq_codebook_size: int = 256
     vq_codebook_dim: int = 256
     cond_drop_prob: float = 0.5
@@ -312,8 +355,10 @@ class Arguments:
     optimizer: str = "Lion"
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
-    skip_arrow: bool = False
+    no_cache: bool = False
     latest_checkpoint: bool = False
+    do_not_save_config: bool = False
+    use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
     generate_config: bool = False
@@ -350,15 +395,31 @@ def main():
         except FileNotFoundError:
             print("Could not find config, using default and parsed values...")
 
+    project_config = ProjectConfiguration(
+        project_dir=args.logging_dir,
+        total_limit=args.checkpoint_limit,
+        automatic_checkpoint_naming=True,
+    )
+
     accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
-        project_dir=args.logging_dir,
-        even_batches=True
+        project_config=project_config,
+        even_batches=True,
     )
     if accelerator.is_main_process:
-        accelerator.init_trackers("muse_vae", config=vars(args))
+        accelerator.init_trackers(
+            args.project_name,
+            config=vars(args),
+            init_kwargs={
+                "wandb": {
+                    "entity": f"{args.wandb_user or wandb.api.default_entity}",
+                    "name": args.run_name,
+                },
+            },
+        )
+
     if args.webdataset is not None:
         import webdataset as wds
 
@@ -370,7 +431,7 @@ def main():
             image_column=args.image_column,
             caption_column=args.caption_column,
             save_path=args.dataset_save_path,
-            save=not args.skip_arrow
+            save=not args.no_cache,
         )
     elif args.dataset_name:
         if args.cache_path:
@@ -386,9 +447,9 @@ def main():
                 print("Dataset doesn't support streaming, disabling streaming")
                 args.streaming = False
                 if args.cache_path:
-                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[args.hf_split_name]
                 else:
-                    dataset = load_dataset(args.dataset_name)["train"]
+                    dataset = load_dataset(args.dataset_name)[args.hf_split_name]
 
     if args.resume_path is not None:
         load = True
@@ -404,23 +465,28 @@ def main():
             accelerator.print("Finding latest checkpoint...")
             orig_vae_path = args.resume_path
 
-            if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
+            if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
                 # If args.vae_path is a file, split it into directory and filename
                 args.resume_path, _ = os.path.split(args.resume_path)
 
             checkpoint_files = glob.glob(os.path.join(args.resume_path, "vae.*.pt"))
             if checkpoint_files:
-                latest_checkpoint_file = max(checkpoint_files,
-                                             key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                latest_checkpoint_file = max(
+                    checkpoint_files, key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
+                )
 
                 # Check if latest checkpoint is empty or unreadable
-                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                    latest_checkpoint_file, os.R_OK
+                ):
                     accelerator.print(
-                        f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
+                    )
                     if len(checkpoint_files) > 1:
                         # Use the second last checkpoint as a fallback
-                        latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                     key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                        latest_checkpoint_file = max(
+                            checkpoint_files[:-1], key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
+                        )
                         accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                     else:
                         accelerator.print("No usable checkpoint found.")
@@ -468,9 +534,8 @@ def main():
             vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
             accelerator=accelerator,
-
         )
-        
+
         current_step = 0
 
     dataset = ImageDataset(
@@ -480,6 +545,7 @@ def main():
         center_crop=not args.no_center_crop,
         flip=not args.no_flip,
         stream=args.streaming,
+        random_crop=args.random_crop,
     )
     # dataloader
 
@@ -515,7 +581,7 @@ def main():
         use_8bit_adam=args.use_8bit_adam,
         num_cycles=args.num_cycles,
         scheduler_power=args.scheduler_power,
-        num_epochs=args.num_epochs
+        num_epochs=args.num_epochs,
     )
 
     trainer.train()

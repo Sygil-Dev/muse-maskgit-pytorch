@@ -1,21 +1,39 @@
 from os import PathLike
 from pathlib import Path
 from shutil import rmtree
-from typing import Dict, Optional, Union
-import accelerate
+from typing import Optional, Union
 
+import accelerate
 import numpy as np
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs, DistributedType
 from beartype import beartype
 from datasets import Dataset
 from lion_pytorch import Lion
+from PIL import Image
 from torch import nn
 from torch.optim import Adam, AdamW, Optimizer
-from torch_optimizer import AdaBound, AdaMod, AccSGD, AdamP, AggMo, DiffGrad, \
-     Lamb, NovoGrad, PID, QHAdam, QHM, RAdam, SGDP, SGDW, Shampoo, SWATS, Yogi
-from transformers.optimization import Adafactor
 from torch.utils.data import DataLoader, random_split
+from torch_optimizer import (
+    PID,
+    QHM,
+    SGDP,
+    SGDW,
+    SWATS,
+    AccSGD,
+    AdaBound,
+    AdaMod,
+    AdamP,
+    AggMo,
+    DiffGrad,
+    Lamb,
+    NovoGrad,
+    QHAdam,
+    RAdam,
+    Shampoo,
+    Yogi,
+)
+from transformers.optimization import Adafactor
 
 try:
     from accelerate.data_loader import MpDeviceLoaderWrapper
@@ -138,7 +156,14 @@ def get_optimizer(
             else Lion(parameters, lr=lr, weight_decay=weight_decay, **optimizer_kwargs)
         )
     elif optimizer == "Adafactor":
-        return Adafactor(parameters, lr=lr, weight_decay=weight_decay, relative_step=False, scale_parameter=False,  **optimizer_kwargs)
+        return Adafactor(
+            parameters,
+            lr=lr,
+            weight_decay=weight_decay,
+            relative_step=False,
+            scale_parameter=False,
+            **optimizer_kwargs,
+        )
     elif optimizer == "AccSGD":
         return AccSGD(parameters, lr=lr, weight_decay=weight_decay)
     elif optimizer == "AdaBound":
@@ -264,30 +289,35 @@ class BaseAcceleratedTrainer(nn.Module):
         return pkg
 
     def log_validation_images(self, images, step, prompts=None):
-        if prompts:
-            self.print(f"Logging with prompts: {prompts}")
         if self.validation_image_scale != 1:
-            # Feel free to make pr for better solution!
-            output_size = (
-                int(images[0].size[0] * self.validation_image_scale),
-                int(images[0].size[1] * self.validation_image_scale),
-            )
-            for i in range(len(images)):
-                images[i] = images[i].resize(output_size)
-        if self.accelerator.is_main_process:
-            for tracker in self.accelerator.trackers:
-                if tracker.name == "tensorboard":
-                    np_images = np.stack([np.asarray(img) for img in images])
-                    tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
-                elif tracker.name == "wandb":
-                    tracker.log(
-                        {
-                            "validation": [
-                                wandb.Image(image, caption="" if not prompts else prompts[i])
-                                for i, image in enumerate(images)
-                            ]
-                        }
-                    )
+            # Calculate the new height based on the scale factor
+            new_height = int(images[0].shape[0] * self.validation_image_scale)
+
+            # Calculate the aspect ratio of the original image
+            aspect_ratio = images[0].shape[1] / images[0].shape[0]
+
+            # Calculate the new width based on the new height and aspect ratio
+            new_width = int(new_height * aspect_ratio)
+
+            # Resize the images using the new width and height
+            output_size = (new_width, new_height)
+            images_pil = [Image.fromarray(image) for image in images]
+            images_pil_resized = [image_pil.resize(output_size) for image_pil in images_pil]
+            images = [np.array(image_pil) for image_pil in images_pil_resized]
+
+        for tracker in self.accelerator.trackers:
+            if tracker.name == "tensorboard":
+                np_images = np.stack([np.asarray(img) for img in images])
+                tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
+            if tracker.name == "wandb":
+                tracker.log(
+                    {
+                        "validation": [
+                            wandb.Image(image, caption="" if not prompts else prompts[i])
+                            for i, image in enumerate(images)
+                        ]
+                    }
+                )
 
     @property
     def device(self):

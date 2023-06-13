@@ -1,19 +1,19 @@
 import copy
 import importlib
-from urllib.parse import urlparse
 from math import log, sqrt
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from einops import rearrange
-from omegaconf import OmegaConf, DictConfig
-
-from taming.models.vqgan import VQModel  # , GumbelVQ
+from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from tqdm_loggable.auto import tqdm
+
+from taming.models.vqgan import VQModel
 
 # constants
 CACHE_PATH = Path.home().joinpath(".cache/taming")
@@ -104,9 +104,9 @@ class VQGanVAETaming(nn.Module):
             model.load_state_dict(state, strict=False)
 
         print(f"Loaded VQGAN from {model_path} and {config_path}")
-        self.model = model
-        # f as used in https://github.com/CompVis/taming-transformers#overview-of-pretrained-models
+        self.model: VQModel = model
 
+        # f as used in https://github.com/CompVis/taming-transformers#overview-of-pretrained-models
         f = config.model.params.ddconfig.resolution / config.model.params.ddconfig.attn_resolutions[0]
         self.num_layers = int(log(f) / log(2))
         self.channels = 3
@@ -149,7 +149,7 @@ class VQGanVAETaming(nn.Module):
         fmap, loss, (_, _, min_encodings_indices) = self.model.encode(im_seq)
 
         b, _, h, w = fmap.shape
-        min_encodings_indices = rearrange(min_encodings_indices, "(b h w) 1 -> b h w", h=h, w=w, b=b)
+        min_encodings_indices = rearrange(min_encodings_indices, "(b h w) -> b h w", h=h, w=w, b=b)
         return fmap, min_encodings_indices, loss
 
     def decode_ids(self, ids):

@@ -1,24 +1,23 @@
 import argparse
+import glob
 import logging
+import os
+import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 import accelerate
 import datasets
 import diffusers
-from rich import inspect
-
-import torch  # noqa: F401
 import transformers
+from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
+from omegaconf import OmegaConf
+from rich import inspect
 from torch.optim import Optimizer
 
-import os
-import glob
-import re
-
-from omegaconf import OmegaConf
+import wandb
 
 try:
     import torch_xla
@@ -39,17 +38,17 @@ from muse_maskgit_pytorch import (
 from muse_maskgit_pytorch.dataset import (
     ImageTextDataset,
     LocalTextImageDataset,
+    URLTextDataset,
     get_dataset_from_dataroot,
     split_dataset_into_dataloaders,
-    URLTextDataset
 )
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import get_optimizer
 
-if accelerate.utils.is_rich_available():
-    from rich import print
-    from rich.traceback import install as traceback_install
+# remove some unnecessary errors from transformer shown on the console.
+transformers.logging.set_verbosity_error()
 
-    traceback_install(show_locals=True, width=120, word_wrap=True)
+# disable bitsandbytes welcome message.
+os.environ["BITSANDBYTES_NOWELCOME"] = "1"
 
 # Create the parser
 parser = argparse.ArgumentParser()
@@ -68,6 +67,11 @@ parser.add_argument(
     "--no_center_crop",
     action="store_true",
     help="Don't do center crop.",
+)
+parser.add_argument(
+    "--random_crop",
+    action="store_true",
+    help="Crop the images at random locations instead of cropping from the center.",
 )
 parser.add_argument(
     "--no_flip",
@@ -151,6 +155,29 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--project_name",
+    type=str,
+    default="muse_maskgit",
+    help=("Name to use for the project to identify it when saved to a tracker such as wandb or tensorboard."),
+)
+parser.add_argument(
+    "--run_name",
+    type=str,
+    default=None,
+    help=(
+        "Name to use for the run to identify it when saved to a tracker such"
+        " as wandb or tensorboard. If not specified a random one will be generated."
+    ),
+)
+parser.add_argument(
+    "--wandb_user",
+    type=str,
+    default=None,
+    help=(
+        "Specify the name for the user or the organization in which the project will be saved when using wand."
+    ),
+)
+parser.add_argument(
     "--mixed_precision",
     type=str,
     default="no",
@@ -187,6 +214,12 @@ parser.add_argument(
     type=str,
     default=None,
     help="ID of HuggingFace dataset to use (cannot be used with --train_data_dir)",
+)
+parser.add_argument(
+    "--hf_split_name",
+    type=str,
+    default="train",
+    help="Subset or split to use from the dataset when using a dataset form HuggingFace.",
 )
 parser.add_argument(
     "--streaming",
@@ -248,16 +281,18 @@ parser.add_argument(
     help="Save the model every N steps.",
 )
 parser.add_argument(
+    "--checkpoint_limit",
+    type=int,
+    default=None,
+    help="Keep only X number of checkpoints and delete the older ones.",
+)
+parser.add_argument(
     "--vq_codebook_size",
     type=int,
     default=256,
     help="Image Size.",
 )
-parser.add_argument(
-    "--vq_codebook_dim", 
-    type=int, 
-    default=256, 
-    help="VQ Codebook dimensions.")
+parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
 parser.add_argument(
     "--cond_drop_prob",
     type=float,
@@ -281,7 +316,7 @@ parser.add_argument(
     type=float,
     default=1.0,
     help="Controls the power of the polynomial decay schedule used by the CosineScheduleWithWarmup scheduler. "
-         "It determines the rate at which the learning rate decreases during the schedule.",
+    "It determines the rate at which the learning rate decreases during the schedule.",
 )
 parser.add_argument(
     "--lr_warmup_steps",
@@ -290,11 +325,11 @@ parser.add_argument(
     help="Number of steps for the warmup in the lr scheduler.",
 )
 parser.add_argument(
-        "--num_cycles",
-        type=int,
-        default=1,
-        help="Number of cycles for the lr scheduler.",
-    )
+    "--num_cycles",
+    type=int,
+    default=1,
+    help="Number of cycles for the lr scheduler.",
+)
 parser.add_argument(
     "--resume_path",
     type=str,
@@ -318,9 +353,9 @@ parser.add_argument(
     type=str,
     default="Adafactor",
     help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion', 'Adafactor', "
-         "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
-         "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
-         "'SWATS', 'Yogi']. Default: Lion",
+    "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
+    "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
+    "'SWATS', 'Yogi']. Default: Lion",
 )
 parser.add_argument(
     "--weight_decay",
@@ -335,9 +370,9 @@ parser.add_argument(
     help="The path to cache huggingface models",
 )
 parser.add_argument(
-    "--skip_arrow",
+    "--no_cache",
     action="store_true",
-    help="whether to skip converting the dataset to arrow, and to directly fetch data",
+    help="Do not save the dataset pyarrow cache/files to disk to save disk space and reduce the time it takes to launch the training.",
 )
 parser.add_argument(
     "--link",
@@ -345,10 +380,21 @@ parser.add_argument(
     help="whether to load a dataset with links instead of image (image column becomes URL column)",
 )
 parser.add_argument(
-        "--latest_checkpoint",
-        action="store_true",
-        help="Automatically find and use the latest checkpoint in the folder.",
-    )
+    "--latest_checkpoint",
+    action="store_true",
+    help="Automatically find and use the latest checkpoint in the folder.",
+)
+parser.add_argument(
+    "--do_not_save_config",
+    action="store_true",
+    default=False,
+    help="Generate example YAML configuration file",
+)
+parser.add_argument(
+    "--use_l2_recon_loss",
+    action="store_true",
+    help="Use F.mse_loss instead of F.l1_loss.",
+)
 parser.add_argument(
     "--debug",
     action="store_true",
@@ -361,9 +407,10 @@ parser.add_argument(
     help="debug logging on",
 )
 parser.add_argument(
-    "--generate_config",
-    action="store_true",
-    help="whether to generate a model config (Recommended for training later)",
+    "--attention_type",
+    type=str,
+    default="flash",
+    help="what type of attention to use [ein, flash, xformers] | Default: flash",
 )
 
 
@@ -401,6 +448,7 @@ class Arguments:
     logging_dir: str = "results/logs"
     vae_path: Optional[str] = None
     dataset_name: Optional[str] = None
+    hf_split_name: Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
     num_train_steps: int = -1
@@ -411,6 +459,7 @@ class Arguments:
     gradient_accumulation_steps: int = 1
     save_results_every: int = 100
     save_model_every: int = 500
+    checkpoint_limit: Union[int, str] = None
     vq_codebook_size: int = 256
     vq_codebook_dim: int = 256
     cond_drop_prob: float = 0.5
@@ -425,26 +474,27 @@ class Arguments:
     optimizer: str = "Lion"
     weight_decay: float = 0.0
     cache_path: Optional[str] = None
-    skip_arrow: bool = False
+    no_cache: bool = False
     link: bool = False
     latest_checkpoint: bool = False
+    do_not_save_config: bool = False
+    use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
-    generate_config: bool = False
+    attention_type: str = "flash"
 
 
 def main():
     args = parser.parse_args(namespace=Arguments())
 
+    if accelerate.utils.is_rich_available():
+        from rich import print
+        from rich.traceback import install as traceback_install
+
+        traceback_install(show_locals=args.debug, width=120, word_wrap=True)
+
     if args.config_path:
         print("Using config file and ignoring CLI args")
-
-        if args.generate_config:
-            conf = OmegaConf.structured(args)
-
-            # dumps to file:
-            with open(args.config_path, "w") as f:
-                OmegaConf.save(conf, f)
 
         try:
             conf = OmegaConf.load(args.config_path)
@@ -469,12 +519,18 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
+    project_config = ProjectConfiguration(
+        project_dir=args.logging_dir,
+        total_limit=args.checkpoint_limit,
+        automatic_checkpoint_naming=True,
+    )
+
     accelerator: accelerate.Accelerator = get_accelerator(
         log_with=args.log_with,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
-        project_dir=args.logging_dir,
-        even_batches=True
+        project_config=project_config,
+        even_batches=True,
     )
 
     # Get these errors out of the way early
@@ -485,13 +541,15 @@ def main():
 
     if accelerator.is_main_process:
         accelerator.print(f"Preparing MaskGit for training on {accelerator.device.type}")
-        inspect(args, docs=False)
+        if args.debug:
+            inspect(args, docs=False)
+
         accelerate.utils.set_seed(args.seed)
 
     # Load the dataset (main process first to download, rest will load from cache)
     with accelerator.main_process_first():
         if args.train_data_dir is not None:
-            if args.skip_arrow:
+            if args.no_cache:
                 pass
             else:
                 dataset = get_dataset_from_dataroot(
@@ -510,63 +568,72 @@ def main():
             )
             if args.streaming:
                 if args.cache_path:
-                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)["train"]
+                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[args.hf_split_name]
                 else:
-                    dataset = load_dataset(args.dataset_name)["train"]
+                    dataset = load_dataset(args.dataset_name)[args.hf_split_name]
         else:
             raise ValueError("You must pass either train_data_dir or dataset_name (but not both)")
 
     # Load the VAE
     with accelerator.main_process_first():
-        if args.vae_path is not None:
-            load = True
-            accelerator.print(f"Using Muse VQGanVAE, loading from {args.vae_path}")
-            vae = VQGanVAE(
-                dim=args.dim,
-                vq_codebook_dim=args.vq_codebook_dim,
-                vq_codebook_size=args.vq_codebook_size,
-                accelerator=accelerator,
-            )
+        if args.vae_path:
+            print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                accelerator.print("Finding latest checkpoint...")
+                print("Finding latest checkpoint...")
                 orig_vae_path = args.vae_path
 
-                if os.path.isfile(args.vae_path) or '.pt' in args.vae_path:
+                if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
                     # If args.vae_path is a file, split it into directory and filename
                     args.vae_path, _ = os.path.split(args.vae_path)
 
                 checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
                 if checkpoint_files:
-                    latest_checkpoint_file = max(checkpoint_files,
-                                                 key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
+                    latest_checkpoint_file = max(
+                        checkpoint_files, key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
+                    )
 
                     # Check if latest checkpoint is empty or unreadable
-                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
-                        accelerator.print(
-                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                        latest_checkpoint_file, os.R_OK
+                    ):
+                        print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                         key=lambda x: int(re.search(r'vae\.(\d+)\.pt', x).group(1)))
-                            accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                            latest_checkpoint_file = max(
+                                checkpoint_files[:-1],
+                                key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1)),
+                            )
+                            print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
-                            accelerator.print("No usable checkpoint found.")
-                            load = False
+                            print("No usable checkpoint found.")
                     elif latest_checkpoint_file != orig_vae_path:
-                        accelerator.print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
+                        print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("Using checkpoint specified in vae_path: ", orig_vae_path)
+                        print("Using checkpoint specified in vae_path: ", orig_vae_path)
 
                     args.vae_path = latest_checkpoint_file
                 else:
-                    accelerator.print("No checkpoints found in directory: ", args.vae_path)
-                    load = False
+                    print("No checkpoints found in directory: ", args.vae_path)
             else:
-                accelerator.print("Resuming VAE from: ", args.vae_path)
+                print("Resuming VAE from: ", args.vae_path)
 
-            if load:
-                vae.load(args.vae_path, map="cpu")
+            # use config next to checkpoint if there is one and merge the cli arguments to it
+            # the cli arguments will take priority so we can use it to override any value we want.
+            # if os.path.exists(f"{args.vae_path}.yaml"):
+            # print("Config file found, reusing config from it. Use cli arguments to override any desired value.")
+            # conf = OmegaConf.load(f"{args.vae_path}.yaml")
+            # cli_conf = OmegaConf.from_cli()
+            ## merge the config file and the cli arguments.
+            # conf = OmegaConf.merge(conf, cli_conf)
+
+            vae = VQGanVAE(
+                dim=args.dim,
+                vq_codebook_dim=args.vq_codebook_dim,
+                vq_codebook_size=args.vq_codebook_size,
+                l2_recon_loss=args.use_l2_recon_loss,
+            ).to(accelerator.device)
+            vae.load(args.vae_path)
 
         elif args.taming_model_path is not None and args.taming_config_path is not None:
             print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
@@ -582,9 +649,24 @@ def main():
                 "You must pass either vae_path or taming_model_path + taming_config_path (but not both)"
             )
 
+    # freeze VAE before parsing to transformer
+    vae.requires_grad_(False)
+
     # then you plug the vae and transformer into your MaskGit like so:
 
     # (1) create your transformer / attention network
+    if args.attention_type == "flash":
+        xformers = False
+        flash = True
+    elif args.attention_type == "xformers":
+        xformers = True
+        flash = True
+    elif args.attention_type == "ein":
+        xformers = False
+        flash = False
+    else:
+        raise NotImplementedError(f'Attention of type "{args.attention_type}" does not exist')
+
     transformer: MaskGitTransformer = MaskGitTransformer(
         # num_tokens must be same as codebook size above
         num_tokens=args.num_tokens if args.num_tokens else args.vq_codebook_size,
@@ -599,7 +681,69 @@ def main():
         # name of your T5 model configuration
         t5_name=args.t5_name,
         cache_path=args.cache_path,
+        flash=flash,
+        xformers=xformers,
     )
+
+    # load the maskgit transformer from disk if we have previously trained one
+    if args.resume_path:
+        if args.latest_checkpoint:
+            accelerator.print("Finding latest checkpoint...")
+            orig_vae_path = args.resume_path
+
+            if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
+                # If args.resume_path is a file, split it into directory and filename
+                args.resume_path, _ = os.path.split(args.resume_path)
+
+            checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
+            if checkpoint_files:
+                latest_checkpoint_file = max(
+                    checkpoint_files,
+                    key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt$", x).group(1))
+                    if not x.endswith("ema.pt")
+                    else -1,
+                )
+
+                # Check if latest checkpoint is empty or unreadable
+                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                    latest_checkpoint_file, os.R_OK
+                ):
+                    accelerator.print(
+                        f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable."
+                    )
+                    if len(checkpoint_files) > 1:
+                        # Use the second last checkpoint as a fallback
+                        latest_checkpoint_file = max(
+                            checkpoint_files[:-1],
+                            key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt$", x).group(1))
+                            if not x.endswith("ema.pt")
+                            else -1,
+                        )
+                        accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
+                    else:
+                        accelerator.print("No usable MaskGit checkpoint found.")
+                elif latest_checkpoint_file != orig_vae_path:
+                    accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
+                else:
+                    accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
+
+                args.resume_path = latest_checkpoint_file
+            else:
+                accelerator.print("No MaskGit checkpoints found in directory: ", args.resume_path)
+        else:
+            accelerator.print("Resuming MaskGit from: ", args.resume_path)
+
+        # use config next to checkpoint if there is one and merge the cli arguments to it
+        # the cli arguments will take priority so we can use it to override any value we want.
+        if os.path.exists(f"{args.resume_path}.yaml"):
+            accelerator.print(
+                "Config file found, reusing config from it. Use cli arguments to override any desired value."
+            )
+            conf = OmegaConf.load(f"{args.resume_path}.yaml")
+            cli_conf = OmegaConf.from_cli()
+            # merge the config file and the cli arguments.
+            conf = OmegaConf.merge(conf, cli_conf)
+
     # (2) pass your trained VAE and the base transformer to MaskGit
     maskgit = MaskGit(
         vae=vae,  # vqgan vae
@@ -620,7 +764,7 @@ def main():
                 accelerator.print("Finding latest checkpoint...")
                 orig_vae_path = args.resume_path
 
-                if os.path.isfile(args.resume_path) or '.pt' in args.resume_path:
+                if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
                     # If args.resume_path is a file, split it into directory and filename
                     args.resume_path, _ = os.path.split(args.resume_path)
 
@@ -631,26 +775,34 @@ def main():
 
                 if checkpoint_files:
                     if args.cond_image_size:
-                        latest_checkpoint_file = max(checkpoint_files,
-                                                     key=lambda x: int(re.search(r'maskgit_superres\.(\d+)\.pt', x).group(1)))
+                        latest_checkpoint_file = max(
+                            checkpoint_files,
+                            key=lambda x: int(re.search(r"maskgit_superres\.(\d+)\.pt", x).group(1)),
+                        )
                     else:
-                        latest_checkpoint_file = max(checkpoint_files,
-                                                     key=lambda x: int(re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                        latest_checkpoint_file = max(
+                            checkpoint_files, key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1))
+                        )
 
                     # Check if latest checkpoint is empty or unreadable
-                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(latest_checkpoint_file, os.R_OK):
+                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
+                        latest_checkpoint_file, os.R_OK
+                    ):
                         accelerator.print(
-                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
+                        )
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
                             if args.cond_image_size:
-                                latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                             key=lambda x: int(
-                                                                 re.search(r'maskgit_superres\.(\d+)\.pt', x).group(1)))
+                                latest_checkpoint_file = max(
+                                    checkpoint_files[:-1],
+                                    key=lambda x: int(re.search(r"maskgit_superres\.(\d+)\.pt", x).group(1)),
+                                )
                             else:
-                                latest_checkpoint_file = max(checkpoint_files[:-1],
-                                                             key=lambda x: int(
-                                                                 re.search(r'maskgit\.(\d+)\.pt', x).group(1)))
+                                latest_checkpoint_file = max(
+                                    checkpoint_files[:-1],
+                                    key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
+                                )
                             accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
                         else:
                             accelerator.print("No usable checkpoint found.")
@@ -686,14 +838,15 @@ def main():
 
     # Create the dataset objects
     with accelerator.main_process_first():
-        if args.skip_arrow and args.train_data_dir:
+        if args.no_cache and args.train_data_dir:
             dataset = LocalTextImageDataset(
                 args.train_data_dir,
                 args.image_size,
                 tokenizer=transformer.tokenizer,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
+                random_crop=args.random_crop if args.random_crop else False,
             )
         elif args.link:
             if not args.dataset_name:
@@ -707,7 +860,7 @@ def main():
                 caption_column=args.caption_column,
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
             )
         else:
             dataset = ImageTextDataset(
@@ -719,7 +872,7 @@ def main():
                 center_crop=False if args.no_center_crop else True,
                 flip=False if args.no_flip else True,
                 stream=args.streaming,
-                using_taming=False if not args.taming_model_path else True
+                using_taming=False if not args.taming_model_path else True,
             )
 
     # Create the dataloaders
@@ -735,11 +888,16 @@ def main():
         args.use_8bit_adam, args.optimizer, set(transformer.parameters()), args.lr, args.weight_decay
     )
 
+    if args.num_train_steps > 0:
+        num_lr_steps = args.num_train_steps * args.gradient_accumulation_steps
+    else:
+        num_lr_steps = args.num_epochs * len(dataloader)
+
     scheduler: SchedulerType = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-        num_training_steps=args.num_train_steps * args.gradient_accumulation_steps,
+        num_training_steps=num_lr_steps,
         num_cycles=args.num_cycles,
         power=args.scheduler_power,
     )
@@ -771,7 +929,16 @@ def main():
             )
 
     if accelerator.is_main_process:
-        accelerator.init_trackers("muse_maskgit", config=vars(args))
+        accelerator.init_trackers(
+            args.project_name,
+            config=vars(args),
+            init_kwargs={
+                "wandb": {
+                    "entity": f"{args.wandb_user or wandb.api.default_entity}",
+                    "name": args.run_name,
+                },
+            },
+        )
 
     # Create the trainer
     accelerator.wait_for_everyone()
@@ -799,7 +966,8 @@ def main():
         clear_previous_experiments=args.clear_previous_experiments,
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
-        num_epochs=args.num_epochs
+        num_epochs=args.num_epochs,
+        args=args,
     )
 
     # Prepare the trainer for distributed training

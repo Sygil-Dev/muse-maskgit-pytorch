@@ -1,0 +1,11 @@
+{
+  "configurations": [
+    {
+      "name": "Python: Verify attn impl equivalence",
+      "type": "python",
+      "request": "launch",
+      "module": "attn_test",
+      "justMyCode": false
+    }
+  ]
+}

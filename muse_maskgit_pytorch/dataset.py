@@ -1,5 +1,6 @@
 import os
 import random
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -7,27 +8,30 @@ from threading import Thread
 
 import datasets
 import torch
-from datasets import Image
-from PIL import Image as pImage
-from PIL import ImageFile
+from datasets import Image, load_from_disk
+from PIL import (
+    Image as pImage,
+    ImageFile,
+)
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms as T
 
 try:
     import torch_xla
     import torch_xla.core.xla_model as xm
-
     from tqdm_loggable.auto import tqdm
 except ImportError:
     from tqdm import tqdm
 
+from io import BytesIO
+
+import requests
 from transformers import T5Tokenizer
 
 from muse_maskgit_pytorch.t5 import MAX_LENGTH
-import requests
-from io import BytesIO
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+pImage.MAX_IMAGE_PIXELS = None
 
 
 class ImageDataset(Dataset):
@@ -39,7 +43,8 @@ class ImageDataset(Dataset):
         flip=True,
         center_crop=True,
         stream=False,
-        using_taming=False
+        using_taming=False,
+        random_crop=False,
     ):
         super().__init__()
         self.dataset = dataset
@@ -51,8 +56,10 @@ class ImageDataset(Dataset):
         ]
         if flip:
             transform_list.append(T.RandomHorizontalFlip())
-        if center_crop:
+        if center_crop and not random_crop:
             transform_list.append(T.CenterCrop(image_size))
+        if random_crop:
+            transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
         self.using_taming = using_taming
@@ -82,16 +89,18 @@ class ImageTextDataset(ImageDataset):
         flip=True,
         center_crop=True,
         stream=False,
-        using_taming=False
+        using_taming=False,
+        random_crop=False,
     ):
         super().__init__(
             dataset,
             image_size=image_size,
             image_column=image_column,
             flip=flip,
-            center_crop=center_crop,
             stream=stream,
-            using_taming=using_taming
+            center_crop=center_crop,
+            using_taming=using_taming,
+            random_crop=random_crop,
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
@@ -136,7 +145,7 @@ class URLTextDataset(ImageDataset):
         caption_column="caption",
         flip=True,
         center_crop=True,
-        using_taming=True
+        using_taming=True,
     ):
         super().__init__(
             dataset,
@@ -144,7 +153,7 @@ class URLTextDataset(ImageDataset):
             image_column=image_column,
             flip=flip,
             center_crop=center_crop,
-            using_taming=using_taming
+            using_taming=using_taming,
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
@@ -189,7 +198,9 @@ class URLTextDataset(ImageDataset):
 
 
 class LocalTextImageDataset(Dataset):
-    def __init__(self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False):
+    def __init__(
+        self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False
+    ):
         super().__init__()
         self.tokenizer = tokenizer
         self.using_taming = using_taming
@@ -223,8 +234,10 @@ class LocalTextImageDataset(Dataset):
         ]
         if flip:
             transform_list.append(T.RandomHorizontalFlip())
-        if center_crop:
+        if center_crop and not random_crop:
             transform_list.append(T.CenterCrop(image_size))
+        if random_crop:
+            transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
 
@@ -284,10 +297,40 @@ def save_dataset_with_progress(dataset, save_path):
             time.sleep(1)
 
 
-def get_dataset_from_dataroot(data_root, image_column="image", caption_column="caption", save_path="dataset", save=True):
+def get_dataset_from_dataroot(
+    data_root,
+    image_column="image",
+    caption_column="caption",
+    save_path="dataset",
+    save=True,
+):
     # Check if data_root is a symlink and resolve it to its target location if it is
     if os.path.islink(data_root):
         data_root = os.path.realpath(data_root)
+
+    if os.path.exists(save_path):
+        # Get the modified time of save_path
+        save_path_mtime = os.stat(save_path).st_mtime
+
+        if save:
+            # Traverse the directory tree of data_root and get the modified time of all files and subdirectories
+            print("Checking modified date of all the files and subdirectories in the dataset folder.")
+            data_root_mtime = max(
+                os.stat(os.path.join(root, f)).st_mtime
+                for root, dirs, files in os.walk(data_root)
+                for f in files + dirs
+            )
+
+            # Check if data_root is newer than save_path
+            if data_root_mtime > save_path_mtime:
+                print(
+                    "The data_root folder has being updated recently. Removing previously saved dataset and updating it."
+                )
+                shutil.rmtree(save_path, ignore_errors=True)
+            else:
+                print("The dataset is up-to-date. Loading...")
+                # Load the dataset from save_path if it is up-to-date
+                return load_from_disk(save_path)
 
     extensions = ["jpg", "jpeg", "png", "webp"]
     image_paths = []
@@ -312,9 +355,10 @@ def get_dataset_from_dataroot(data_root, image_column="image", caption_column="c
         data_dict[caption_column].append(captions)
     dataset = datasets.Dataset.from_dict(data_dict)
     dataset = dataset.cast_column(image_column, Image())
-    # dataset.save_to_disk(save_path)
+
     if save:
         save_dataset_with_progress(dataset, save_path)
+
     return dataset
 
 

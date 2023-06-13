@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from accelerate import Accelerator
 from diffusers.optimization import SchedulerType
 from ema_pytorch import EMA
+from omegaconf import OmegaConf
 from PIL import Image
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -55,6 +56,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         clear_previous_experiments=False,
         validation_image_scale: float = 1.0,
         only_save_last_checkpoint=False,
+        args=None,
     ):
         super().__init__(
             dataloader=dataloader,
@@ -77,6 +79,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.save_results_every = save_results_every
         self.log_metrics_every = log_metrics_every
         self.batch_size = batch_size
+
+        # arguments used for the training script,
+        # we are going to use them later to save them to a config file.
+        self.args = args
+
         # maskgit
         maskgit.vae.requires_grad_(False)
         maskgit.transformer.t5.requires_grad_(False)
@@ -103,25 +110,31 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             else:
                 self.training_bar = tqdm(initial=int(self.steps.item()), total=self.num_train_steps)
 
-            self.info_bar = tqdm(total=0, bar_format='{desc}')
+            self.info_bar = tqdm(total=0, bar_format="{desc}")
 
     def save_validation_images(
         self, validation_prompts, step: int, cond_image=None, cond_scale=3, temperature=1
     ):
+        # moved the print to the top of the function so it shows before the progress bar for reability.
+        if validation_prompts:
+            self.accelerator.print(
+                f"\nStep: {step} | Logging with prompts: {[' | '.join(validation_prompts)]}"
+            )
+
         images = self.model.generate(
             validation_prompts,
             cond_images=cond_image,
             cond_scale=cond_scale,
             temperature=temperature,
-        ).to("cpu")
+        ).to(self.accelerator.device)
 
         save_dir = self.results_dir.joinpath("MaskGit")
         save_dir.mkdir(exist_ok=True, parents=True)
-        save_file = save_dir.joinpath(f"maskgit_S{step:04d}.png")
+        save_file = save_dir.joinpath(f"maskgit_{step}.png")
 
         if self.accelerator.is_main_process:
             save_image(images, save_file, "png")
-            self.log_validation_images([Image.open(save_file)], step, ["\n---\n".join(validation_prompts)])
+            self.log_validation_images([Image.open(save_file)], step, ["|".join(validation_prompts)])
         return save_file
 
     def train(self):
@@ -129,9 +142,9 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.model.train()
 
         if self.accelerator.is_main_process:
-            proc_label = f"[P{self.accelerator.process_index:03d}][Master]"
+            proc_label = f"[P{self.accelerator.process_index}][Master]"
         else:
-            proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
+            proc_label = f"[P{self.accelerator.process_index}][Worker]"
 
         # logs
         for epoch in range(self.num_epochs):
@@ -162,22 +175,22 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     logs = {"loss": train_loss, "lr": self.lr_scheduler.get_last_lr()[0]}
 
                     if self.on_tpu:
-                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
-                                               f"maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+                        self.accelerator.print(
+                            f"\n[E{epoch + 1}][{steps}]{proc_label}: "
+                            f"maskgit loss: {logs['loss']} - lr: {logs['lr']}"
+                        )
                     else:
                         self.training_bar.update()
-                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
-                                                          f"maskgit loss: {logs['loss']} - lr: {logs['lr']}")
+                        self.info_bar.set_description_str(
+                            f"[E{epoch + 1}]{proc_label}: " f"maskgit loss: {logs['loss']} - lr: {logs['lr']}"
+                        )
 
                     self.accelerator.log(logs, step=steps)
 
                 if not (steps % self.save_model_every):
-                    if self.on_tpu:
-                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
-                                               f"saving model to {self.results_dir}")
-                    else:
-                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
-                                                          f"saving model to {self.results_dir}")
+                    self.accelerator.print(
+                        f"\n[E{epoch + 1}][{steps}]{proc_label}: " f"saving model to {self.results_dir}"
+                    )
 
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                     maskgit_save_name = "maskgit_superres" if self.model.cond_image_size else "maskgit"
@@ -191,14 +204,16 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     self.accelerator.wait_for_everyone()
                     self.accelerator.save(state_dict, model_path)
 
+                    if self.args and not self.args.do_not_save_config:
+                        # save config file next to the model file.
+                        conf = OmegaConf.create(vars(self.args))
+                        OmegaConf.save(conf, f"{model_path}.yaml")
+
                     if self.use_ema:
-                        if self.on_tpu:
-                            self.accelerator.print(
-                                f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
-                                f"saving EMA model to {self.results_dir}")
-                        else:
-                            self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
-                                                              f"saving EMA model to {self.results_dir}")
+                        self.accelerator.print(
+                            f"\n[E{epoch + 1}][{steps}]{proc_label}: "
+                            f"saving EMA model to {self.results_dir}"
+                        )
 
                         ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
                         file_name = (
@@ -210,6 +225,11 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         self.accelerator.wait_for_everyone()
                         self.accelerator.save(ema_state_dict, model_path)
 
+                        if self.args and not self.args.do_not_save_config:
+                            # save config file next to the model file.
+                            conf = OmegaConf.create(vars(self.args))
+                            OmegaConf.save(conf, f"{model_path}.yaml")
+
                 if not (steps % self.save_results_every):
                     cond_image = None
                     if self.model.cond_image_size:
@@ -217,24 +237,27 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         self.validation_prompts = [""] * self.batch_size
 
                     if self.on_tpu:
-                        self.accelerator.print(f"[E{epoch + 1}]{proc_label}: "
-                                               f"Logging validation images")
+                        self.accelerator.print(f"\n[E{epoch + 1}]{proc_label}: " f"Logging validation images")
                     else:
-                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
-                                                          f"Logging validation images")
+                        self.info_bar.set_description_str(
+                            f"[E{epoch + 1}]{proc_label}: " f"Logging validation images"
+                        )
 
                     saved_image = self.save_validation_images(
                         self.validation_prompts, steps, cond_image=cond_image
                     )
                     if self.on_tpu:
-                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saved to {saved_image}")
+                        self.accelerator.print(
+                            f"\n[E{epoch + 1}][{steps}]{proc_label}: saved to {saved_image}"
+                        )
                     else:
-                        self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: "
-                                                          f"saved to {saved_image}")
+                        self.info_bar.set_description_str(
+                            f"[E{epoch + 1}]{proc_label}: " f"saved to {saved_image}"
+                        )
 
                 if met is not None and not (steps % self.log_metrics_every):
                     if self.on_tpu:
-                        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: metrics:")
+                        self.accelerator.print(f"\n[E{epoch + 1}][{steps}]{proc_label}: metrics:")
                     else:
                         self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}: metrics:")
 
@@ -242,15 +265,20 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
             if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
                 if self.on_tpu:
-                    self.accelerator.print(f"[E{epoch + 1}][S{int(self.steps.item()):05d}]{proc_label}"
-                                           f"[STOP EARLY]: Stopping training early...")
+                    self.accelerator.print(
+                        f"\n[E{epoch + 1}][{int(self.steps.item())}]{proc_label}"
+                        f"[STOP EARLY]: Stopping training early..."
+                    )
                 else:
-                    self.info_bar.set_description_str(f"[E{epoch + 1}]{proc_label}"
-                                                      f"[STOP EARLY]: Stopping training early...")
+                    self.info_bar.set_description_str(
+                        f"[E{epoch + 1}]{proc_label}" f"[STOP EARLY]: Stopping training early..."
+                    )
                 break
 
         # loop complete, save final model
-        self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}[FINAL]: saving model to {self.results_dir}")
+        self.accelerator.print(
+            f"\n[E{epoch + 1}][{steps}]{proc_label}[FINAL]: saving model to {self.results_dir}"
+        )
         state_dict = self.accelerator.unwrap_model(self.model).state_dict()
         maskgit_save_name = "maskgit_superres" if self.model.cond_image_size else "maskgit"
         file_name = (
@@ -263,10 +291,13 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.accelerator.wait_for_everyone()
         self.accelerator.save(state_dict, model_path)
 
+        if self.args and not self.args.do_not_save_config:
+            # save config file next to the model file.
+            conf = OmegaConf.create(vars(self.args))
+            OmegaConf.save(conf, f"{model_path}.yaml")
+
         if self.use_ema:
-            self.accelerator.print(
-                f"[S{steps:05d}]{proc_label}[FINAL]: saving EMA model to {self.results_dir}"
-            )
+            self.accelerator.print(f"\n[{steps}]{proc_label}[FINAL]: saving EMA model to {self.results_dir}")
             ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
             file_name = (
                 f"{maskgit_save_name}.{steps}.ema.pt"
@@ -277,16 +308,22 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             self.accelerator.wait_for_everyone()
             self.accelerator.save(ema_state_dict, model_path)
 
+            if self.args and not self.args.do_not_save_config:
+                # save config file next to the model file.
+                conf = OmegaConf.create(vars(self.args))
+                OmegaConf.save(conf, f"{model_path}.yaml")
+
         cond_image = None
         if self.model.cond_image_size:
             self.accelerator.print(
                 "With conditional image training, we recommend keeping the validation prompts to empty strings"
             )
-            cond_image = F.interpolate(imgs[0], 256)
+            cond_image = F.interpolate(imgs, self.model.cond_image_size, mode="nearest")
+
         steps = int(self.steps.item()) + 1  # get the final step count, plus one
-        self.accelerator.print(f"[S{steps:05d}]{proc_label}: Logging validation images")
+        self.accelerator.print(f"\n[{steps}]{proc_label}: Logging validation images")
         saved_image = self.save_validation_images(self.validation_prompts, steps, cond_image=cond_image)
-        self.accelerator.print(f"[S{steps:05d}]{proc_label}: saved to {saved_image}")
+        self.accelerator.print(f"\n[{steps}]{proc_label}: saved to {saved_image}")
 
         if met is not None and not (steps % self.log_metrics_every):
-            self.accelerator.print(f"[S{steps:05d}]{proc_label}: metrics:")
+            self.accelerator.print(f"\n[{steps}]{proc_label}: metrics:")

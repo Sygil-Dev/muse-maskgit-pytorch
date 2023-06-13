@@ -1,22 +1,14 @@
-from datetime import datetime
-from pathlib import Path
-from shutil import rmtree
-
-import numpy as np
 import torch
-from accelerate import Accelerator, DistributedDataParallelKwargs, DistributedType
-from beartype import beartype
+from accelerate import Accelerator
 from diffusers.optimization import get_scheduler
 from einops import rearrange
 from ema_pytorch import EMA
-from lion_pytorch import Lion
+from omegaconf import OmegaConf
 from PIL import Image
-from torch import nn
-from torch.optim import Adam, AdamW
 from torch.optim.lr_scheduler import LRScheduler
-from torch.utils.data import DataLoader, random_split
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
+from tqdm import tqdm
 
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import (
     BaseAcceleratedTrainer,
@@ -73,7 +65,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         weight_decay=0.0,
         use_8bit_adam=False,
         num_cycles=1,
-        scheduler_power=1.0
+        scheduler_power=1.0,
+        args=None,
     ):
         super().__init__(
             dataloader,
@@ -94,6 +87,10 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             only_save_last_checkpoint=only_save_last_checkpoint,
         )
 
+        # arguments used for the training script,
+        # we are going to use them later to save them to a config file.
+        self.args = args
+
         # vae
         self.model = vae
 
@@ -104,12 +101,17 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         # optimizers
         self.optim = get_optimizer(use_8bit_adam, optimizer, vae_parameters, lr, weight_decay)
         self.discr_optim = get_optimizer(use_8bit_adam, optimizer, discr_parameters, lr, weight_decay)
-        
+
+        if self.num_train_steps > 0:
+            self.num_lr_steps = self.num_train_steps * self.gradient_accumulation_steps
+        else:
+            self.num_lr_steps = self.num_epochs * len(self.dl)
+
         self.lr_scheduler: LRScheduler = get_scheduler(
             lr_scheduler_type,
             optimizer=self.optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
-            num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_training_steps=self.num_lr_steps,
             num_cycles=num_cycles,
             power=scheduler_power,
         )
@@ -118,7 +120,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             lr_scheduler_type,
             optimizer=self.discr_optim,
             num_warmup_steps=lr_warmup_steps * self.gradient_accumulation_steps,
-            num_training_steps=self.num_train_steps * self.gradient_accumulation_steps,
+            num_training_steps=self.num_lr_steps,
             num_cycles=num_cycles,
             power=scheduler_power,
         )
@@ -156,6 +158,14 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             )
             self.ema_model = accelerator.prepare(self.ema_model)
 
+        if not self.on_tpu:
+            if self.num_train_steps <= 0:
+                self.training_bar = tqdm(initial=int(self.steps.item()), total=len(self.dl) * self.num_epochs)
+            else:
+                self.training_bar = tqdm(initial=int(self.steps.item()), total=self.num_train_steps)
+
+            self.info_bar = tqdm(total=0, bar_format="{desc}")
+
     def load(self, path):
         pkg = super().load(path)
         self.discr_optim.load_state_dict(pkg["discr_optim"])
@@ -171,30 +181,34 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         )
         self.accelerator.save(pkg, path)
 
-    def log_validation_images(self, models_to_evaluate, logs, steps):
+    def log_validation_images(self, logs, steps):
         log_imgs = []
-        prompts = ["vae"] if len(models_to_evaluate) == 1 else ["vae", "ema"]
-        for model, filename in models_to_evaluate:
-            model.eval()
+        self.model.eval()
 
+        try:
             valid_data = next(self.valid_dl_iter)
-            valid_data = valid_data.to(self.device)
+        except StopIteration:
+            self.valid_dl_iter = iter(self.valid_dl)
+            valid_data = next(self.valid_dl_iter)
 
-            recons = model(valid_data, return_recons=True)
+        valid_data = valid_data.to(self.device)
 
-            # else save a grid of images
+        recons = self.model(valid_data, return_recons=True)
 
-            imgs_and_recons = torch.stack((valid_data, recons), dim=0)
-            imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
+        # else save a grid of images
 
-            imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
-            grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+        imgs_and_recons = torch.stack((valid_data, recons), dim=0)
+        imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
 
-            logs["reconstructions"] = grid
-            save_file = str(self.results_dir / f"{filename}.png")
-            save_image(grid, save_file)
-            log_imgs.append(Image.open(save_file))
-        super().log_validation_images(log_imgs, steps, prompts=prompts)
+        imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
+        grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+
+        logs["reconstructions"] = grid
+        save_file = str(self.results_dir / f"{steps}.png")
+        save_image(grid, save_file)
+        log_imgs.append(Image.open(save_file))
+        super().log_validation_images(log_imgs, steps, prompts=["vae"])
+        self.model.train()
 
     def train(self):
         self.steps = self.steps + 1
@@ -205,7 +219,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index:03d}][Master]"
         else:
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
-        
+
         for epoch in range(self.num_epochs):
             for img in self.dl:
                 loss = 0.0
@@ -234,7 +248,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 accum_log(logs, {"Train/vae_loss": loss.item() / self.gradient_accumulation_steps})
 
-
                 self.lr_scheduler.step()
                 self.lr_scheduler_discr.step()
                 self.optim.step()
@@ -262,11 +275,23 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     self.discr_optim.step()
 
                 # log
-
-                self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
-                                       f"vae loss: {logs['Train/vae_loss']} - "
-                                       f"discr loss: {logs['Train/discr_loss']} - "
-                                       f"lr: {self.lr_scheduler.get_last_lr()[0]}")
+                if self.on_tpu:
+                    self.accelerator.print(
+                        f"[E{epoch + 1}][{steps:05d}]{proc_label}: "
+                        f"vae loss: {logs['Train/vae_loss']} - "
+                        f"discr loss: {logs['Train/discr_loss']} - "
+                        f"lr: {self.lr_scheduler.get_last_lr()[0]}"
+                    )
+                else:
+                    self.training_bar.update()
+                    # Note: we had to remove {proc_label} from the description
+                    # to short it so it doenst go beyond one line on each step.
+                    self.info_bar.set_description_str(
+                        f"[E{epoch + 1}][{steps:05d}]: "
+                        f"vae loss: {logs['Train/vae_loss']} - "
+                        f"discr loss: {logs['Train/discr_loss']} - "
+                        f"lr: {self.lr_scheduler.get_last_lr()[0]}"
+                    )
 
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
                 self.accelerator.log(logs, step=steps)
@@ -279,44 +304,65 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 # sample results every so often
 
                 if (steps % self.save_results_every) == 0:
-                    vaes_to_evaluate = ((self.model, str(steps)),)
-
-                    if self.use_ema:
-                        vaes_to_evaluate = ((ema_model.ema_model, f"{steps}.ema"),) + vaes_to_evaluate
-
-                    self.log_validation_images(vaes_to_evaluate, logs, steps)
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving to {str(self.results_dir)}")
+                    self.accelerator.print(
+                        f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saving to {str(self.results_dir)}"
+                    )
+                    self.log_validation_images(logs, steps)
 
                 # save model every so often
                 self.accelerator.wait_for_everyone()
                 if self.is_main_process and (steps % self.save_model_every) == 0:
+                    self.accelerator.print(
+                        f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}"
+                    )
+
                     state_dict = self.accelerator.unwrap_model(self.model).state_dict()
                     file_name = f"vae.{steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
                     model_path = str(self.results_dir / file_name)
                     self.accelerator.save(state_dict, model_path)
 
+                    if self.args and not self.args.do_not_save_config:
+                        # save config file next to the model file.
+                        conf = OmegaConf.create(vars(self.args))
+                        OmegaConf.save(conf, f"{model_path}.yaml")
+
                     if self.use_ema:
                         ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
-                        file_name = f"vae.{steps}.ema.pt" if not self.only_save_last_checkpoint else "vae.ema.pt"
+                        file_name = (
+                            f"vae.{steps}.ema.pt" if not self.only_save_last_checkpoint else "vae.ema.pt"
+                        )
                         model_path = str(self.results_dir / file_name)
                         self.accelerator.save(ema_state_dict, model_path)
 
-                    self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
+                        if self.args and not self.args.do_not_save_config:
+                            # save config file next to the model file.
+                            conf = OmegaConf.create(vars(self.args))
+                            OmegaConf.save(conf, f"{model_path}.yaml")
 
                 self.steps += 1
 
             if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
-                self.accelerator.print(f"[E{epoch + 1}][S{steps:05d}]{proc_label}: "
-                                       f"[STOP EARLY]: Stopping training early...")
+                self.accelerator.print(
+                    f"\n[E{epoch + 1}][{steps:05d}]{proc_label}: " f"[STOP EARLY]: Stopping training early..."
+                )
                 break
-        
+
         # Loop finished, save model
         self.accelerator.wait_for_everyone()
         if self.is_main_process:
+            self.accelerator.print(
+                f"[E{self.num_epochs}][{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}"
+            )
+
             state_dict = self.accelerator.unwrap_model(self.model).state_dict()
             file_name = f"vae.{steps}.pt" if not self.only_save_last_checkpoint else "vae.pt"
             model_path = str(self.results_dir / file_name)
             self.accelerator.save(state_dict, model_path)
+
+            if self.args and not self.args.do_not_save_config:
+                # save config file next to the model file.
+                conf = OmegaConf.create(vars(self.args))
+                OmegaConf.save(conf, f"{model_path}.yaml")
 
             if self.use_ema:
                 ema_state_dict = self.accelerator.unwrap_model(self.ema_model).state_dict()
@@ -324,5 +370,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 model_path = str(self.results_dir / file_name)
                 self.accelerator.save(ema_state_dict, model_path)
 
-            self.accelerator.print(f"[E{self.num_epochs}][S{steps:05d}]{proc_label}: saving model to {str(self.results_dir)}")
-
+                if self.args and not self.args.do_not_save_config:
+                    # save config file next to the model file.
+                    conf = OmegaConf.create(vars(self.args))
+                    OmegaConf.save(conf, f"{model_path}.yaml")
