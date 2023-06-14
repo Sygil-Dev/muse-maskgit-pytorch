@@ -5,11 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Union
 
+import wandb
 from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from omegaconf import OmegaConf
-
-import wandb
 
 from muse_maskgit_pytorch import (
     VQGanVAE,
