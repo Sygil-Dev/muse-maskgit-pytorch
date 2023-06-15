@@ -19,7 +19,7 @@ class VQVAE(ModelMixin, ConfigMixin):
         self.decoder = Decoder(**dec)
 
         self.prev_quant = nn.Linear(enc["dim"], embed_dim)
-        self.quantizer = VectorQuantize(n_embed, embed_dim, beta)
+        self.quantize = VectorQuantize(n_embed, embed_dim, beta)
         self.post_quant = nn.Linear(embed_dim, dec["dim"])
 
     def freeze(self):
@@ -29,7 +29,7 @@ class VQVAE(ModelMixin, ConfigMixin):
     def encode(self, x):
         x = self.encoder(x)
         x = self.prev_quant(x)
-        x, loss, indices = self.quantizer(x)
+        x, loss, indices = self.quantize(x)
         return x, loss, indices
 
     def decode(self, x):
@@ -47,7 +47,7 @@ class VQVAE(ModelMixin, ConfigMixin):
         return indices
 
     def decode_from_ids(self, indice):
-        z_q = self.quantizer.decode_ids(indice)
+        z_q = self.quantize.decode_ids(indice)
         img = self.decode(z_q)
         return img
 
