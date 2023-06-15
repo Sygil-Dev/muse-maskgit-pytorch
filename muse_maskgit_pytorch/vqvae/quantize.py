@@ -37,7 +37,7 @@ class VectorQuantize(nn.Module):
 
         return z_q, loss, encoding_indices
 
-    def get_codebook_entry(self, indices):
+    def decode_ids(self, indices):
         z_q = self.embedding(indices)
         z_q = F.normalize(z_q, p=2, dim=-1)
 

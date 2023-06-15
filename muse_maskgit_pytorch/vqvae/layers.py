@@ -78,7 +78,6 @@ class Encoder(nn.Module):
         num_head,
         mlp_dim,
         in_channels=3,
-        out_channels=3,
         dim_head=64,
         dropout=0.0,
     ):
@@ -132,7 +131,6 @@ class Decoder(nn.Module):
         depth,
         num_head,
         mlp_dim,
-        in_channels=3,
         out_channels=3,
         dim_head=64,
         dropout=0.0,

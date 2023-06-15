@@ -19,7 +19,7 @@ class VQVAE(ModelMixin, ConfigMixin):
         self.decoder = Decoder(**dec)
 
         self.prev_quant = nn.Linear(enc["dim"], embed_dim)
-        self.quantize = VectorQuantize(n_embed, embed_dim, beta)
+        self.quantizer = VectorQuantize(n_embed, embed_dim, beta)
         self.post_quant = nn.Linear(embed_dim, dec["dim"])
 
     def freeze(self):
@@ -29,7 +29,7 @@ class VQVAE(ModelMixin, ConfigMixin):
     def encode(self, x):
         x = self.encoder(x)
         x = self.prev_quant(x)
-        x, loss, indices = self.quantize(x)
+        x, loss, indices = self.quantizer(x)
         return x, loss, indices
 
     def decode(self, x):
@@ -37,12 +37,19 @@ class VQVAE(ModelMixin, ConfigMixin):
         x = self.decoder(x)
         return x.clamp(-1.0, 1.0)
 
-    def forward(self, img: torch.FloatTensor):
-        z, loss, indices = self.encode(img)
+    def forward(self, inputs: torch.FloatTensor):
+        z, loss, _ = self.encode(inputs)
         rec = self.decode(z)
         return rec, loss
 
+    def encode_to_ids(self, inputs):
+        _, _, indices = self.encode(inputs)
+        return indices
+
     def decode_from_ids(self, indice):
-        z_q = self.quantize.get_codebook_entry(indice)
+        z_q = self.quantizer.decode_ids(indice)
         img = self.decode(z_q)
         return img
+
+    def __call__(self, inputs: torch.FloatTensor):
+        return self.forward(inputs)
