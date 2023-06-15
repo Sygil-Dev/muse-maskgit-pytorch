@@ -27,7 +27,9 @@ transform_dec = T.Compose([T.ConvertImageDtype(torch.uint8), T.ToPILImage()])
 
 
 def get_save_path(path: Path, append: str) -> Path:
-    return path.with_stem(f"{path.stem}-{append}")
+    # append a string to the filename before the extension
+    # n.b. only keeps the final suffix, e.g. "foo.xyz.png" -> "foo-prepro.png"
+    return path.with_name(f"{path.stem}-{append}{path.suffix}")
 
 
 def main():
@@ -42,7 +44,7 @@ def main():
 
     # download and process images
     for image in test_images:
-        image_path = hf_hub_download(model_repo, subfolder="images", filename=image, output_dir=image_dir)
+        image_path = hf_hub_download(model_repo, subfolder="images", filename=image, local_dir=image_dir)
         image_path = Path(image_path)
         logger.info(f"Downloaded {image_path}, size {image_path.stat().st_size} bytes")
 
@@ -76,3 +78,7 @@ def main():
         logger.info(f"Saved comparison image to {save_path}")
 
     logger.info("Done!")
+
+
+if __name__ == "__main__":
+    main()
