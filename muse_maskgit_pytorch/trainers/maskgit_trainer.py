@@ -263,7 +263,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
                 self.steps += 1
 
-            if self.num_train_steps > 0 and self.steps >= int(self.steps.item()):
+            if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
                 if self.on_tpu:
                     self.accelerator.print(
                         f"\n[E{epoch + 1}][{int(self.steps.item())}]{proc_label}"
