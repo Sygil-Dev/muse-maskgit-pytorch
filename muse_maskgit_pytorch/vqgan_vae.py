@@ -407,7 +407,7 @@ class VQGanVAE(nn.Module):
         if exists(self._vgg):
             return self._vgg
 
-        vgg = torchvision.models.vgg16(pretrained=True)
+        vgg = torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT)
         vgg.classifier = nn.Sequential(*vgg.classifier[:-2])
         self._vgg = vgg.to(self.device)
         return self._vgg
