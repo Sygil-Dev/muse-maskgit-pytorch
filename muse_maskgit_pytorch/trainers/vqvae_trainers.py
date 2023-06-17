@@ -305,7 +305,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 if (steps % self.save_results_every) == 0:
                     self.accelerator.print(
-                        f"\n[E{epoch + 1}][{steps}] | Logging validation images to {str(self.results_dir)}\n"
+                        f"\n[E{epoch + 1}][{steps}] | Logging validation images to {str(self.results_dir)}"
                     )
 
                     self.log_validation_images(logs, steps)
@@ -340,11 +340,11 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 self.steps += 1
 
-            if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
-                self.accelerator.print(
-                    f"\n[E{epoch + 1}][{steps}]{proc_label}: " f"[STOP EARLY]: Stopping training early..."
-                )
-                break
+            # if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
+            # self.accelerator.print(
+            # f"\n[E{epoch + 1}][{steps}]{proc_label}: " f"[STOP EARLY]: Stopping training early..."
+            # )
+            # break
 
         # Loop finished, save model
         self.accelerator.wait_for_everyone()
