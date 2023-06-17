@@ -398,7 +398,7 @@ def main():
 
     if args.use_paintmind:
         # load VAE
-        accelerator.print(f"Loading VQVAE from 'neggles/vaedump/vit-s-vqgan-f4' ...")
+        accelerator.print("Loading VQVAE from 'neggles/vaedump/vit-s-vqgan-f4' ...")
         vae: VQVAE = VQVAE.from_pretrained("neggles/vaedump", subfolder="vit-s-vqgan-f4")
 
     elif args.taming_model_path:
@@ -465,14 +465,18 @@ def main():
 
                     if not args.use_paintmind:
                         # encode
-                        _, ids, _ = vae.encode(dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"))
+                        _, ids, _ = vae.encode(
+                            dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+                        )
                         # decode
                         recon = vae.decode_from_ids(ids)
-                        #print (recon.shape) # torch.Size([1, 3, 512, 1136])
+                        # print (recon.shape) # torch.Size([1, 3, 512, 1136])
                         save_image(recon, f"{output_dir}/output.png")
                     else:
                         # encode
-                        encoded, _, _ = vae.encode(dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"))
+                        encoded, _, _ = vae.encode(
+                            dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+                        )
 
                         # decode
                         recon = vae.decode(encoded).squeeze(0)
@@ -519,7 +523,7 @@ def main():
                         continue  # Retry the loop
 
                     else:
-                        if"out of memory" not in str(e):
+                        if "out of memory" not in str(e):
                             print(e)
                         else:
                             print(f"Skipping image {i} after {retries} retries due to out of memory error")

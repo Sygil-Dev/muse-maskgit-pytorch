@@ -340,11 +340,11 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
                 self.steps += 1
 
-            #if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
-                #self.accelerator.print(
-                    #f"\n[E{epoch + 1}][{steps}]{proc_label}: " f"[STOP EARLY]: Stopping training early..."
-                #)
-                #break
+            # if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
+            # self.accelerator.print(
+            # f"\n[E{epoch + 1}][{steps}]{proc_label}: " f"[STOP EARLY]: Stopping training early..."
+            # )
+            # break
 
         # Loop finished, save model
         self.accelerator.wait_for_everyone()

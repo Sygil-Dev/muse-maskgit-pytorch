@@ -263,17 +263,17 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
                 self.steps += 1
 
-            #if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
-                #if self.on_tpu:
-                    #self.accelerator.print(
-                        #f"\n[E{epoch + 1}][{int(self.steps.item())}]{proc_label}"
-                        #f"[STOP EARLY]: Stopping training early..."
-                    #)
-                #else:
-                    #self.info_bar.set_description_str(
-                        #f"[E{epoch + 1}]{proc_label}" f"[STOP EARLY]: Stopping training early..."
-                    #)
-                #break
+            # if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
+            # if self.on_tpu:
+            # self.accelerator.print(
+            # f"\n[E{epoch + 1}][{int(self.steps.item())}]{proc_label}"
+            # f"[STOP EARLY]: Stopping training early..."
+            # )
+            # else:
+            # self.info_bar.set_description_str(
+            # f"[E{epoch + 1}]{proc_label}" f"[STOP EARLY]: Stopping training early..."
+            # )
+            # break
 
         # loop complete, save final model
         self.accelerator.print(
