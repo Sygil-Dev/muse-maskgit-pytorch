@@ -5,11 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Union
 
+import wandb
 from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from omegaconf import OmegaConf
-
-import wandb
 
 from muse_maskgit_pytorch import (
     VQGanVAE,
@@ -300,6 +299,17 @@ parser.add_argument(
     action="store_true",
     help="Whether to use the latest checkpoint",
 )
+parser.add_argument(
+    "--do_not_save_config",
+    action="store_true",
+    default=False,
+    help="Generate example YAML configuration file",
+)
+parser.add_argument(
+    "--use_l2_recon_loss",
+    action="store_true",
+    help="Use F.mse_loss instead of F.l1_loss.",
+)
 
 
 @dataclass
@@ -361,7 +371,6 @@ class Arguments:
     use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
-    generate_config: bool = False
 
 
 def preprocess_webdataset(args, image):
@@ -373,13 +382,6 @@ def main():
 
     if args.config_path:
         print("Using config file and ignoring CLI args")
-
-        if args.generate_config:
-            conf = OmegaConf.structured(args)
-
-            # dumps to file:
-            with open(args.config_path, "w") as f:
-                OmegaConf.save(conf, f)
 
         try:
             conf = OmegaConf.load(args.config_path)
@@ -459,6 +461,7 @@ def main():
             vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
             accelerator=accelerator,
+            l2_recon_loss=args.use_l2_recon_loss,
         )
 
         if args.latest_checkpoint:
@@ -582,6 +585,7 @@ def main():
         num_cycles=args.num_cycles,
         scheduler_power=args.scheduler_power,
         num_epochs=args.num_epochs,
+        args=args,
     )
 
     trainer.train()
