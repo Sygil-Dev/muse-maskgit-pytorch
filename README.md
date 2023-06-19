@@ -255,6 +255,9 @@ Training should be done in 4 stages.
 accelerate launch train_muse_maskgit.py --dataset_name="cifar10" --taming_model_path="models/image_net_f16/ckpts/last.ckpt" --taming_config_path="models/image_net_f16/configs/model.yaml" --validation_prompt="0" --image_column="img" --caption_column="label"
 ```
 
+## Checkpoints and Pretrained Models
+We currently do not have any usable pretrained model for Muse but we are trying to train it with whatever resources we have available, for more information check the [Sygil Muse](https://huggingface.co/Sygil/Sygil-Muse) repository on HuggingFace where we are uploading the checkpoints for different tests we have performed and where we will be uploading the final weights once we have something everyone can use.
+
 ## Appreciation
 - [Lucidrains](https://github.com/lucidrains/muse-maskgit-pytorch) for the original Muse-Maskgit-Pytorch implementation.
 - The [ShoukanLabs](https://github.com/ShoukanLabs) team for contributing so much to improving the code and adding new features.
