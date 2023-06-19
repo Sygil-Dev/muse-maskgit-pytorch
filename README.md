@@ -2,14 +2,25 @@
 
 ## Muse - Pytorch
 
-Implementation of <a href="https://muse-model.github.io/">Muse</a>: Text-to-Image Generation via Masked Generative Transformers, in Pytorch
+### Implementation of <a href="https://muse-model.github.io/">Muse</a>: Text-to-Image Generation via Masked Generative Transformers, in Pytorch originally made by [Lucidrains](https://github.com/lucidrains/muse-maskgit-pytorch). 
 
-Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in helping out with the replication with the <a href="https://laion.ai/">LAION</a> community
+## 
+We have added additional code to allow anyone to train their own model and we have optimized the code for low end hardware.
+
+## Join us at Sygil.Dev's Discord Server [![Generic badge](https://flat.badgen.net/discord/members/ttM8Tm6wge?icon=discord)](https://discord.gg/ttM8Tm6wge)
 
 ## Install
+For installing the code you have two options:
 
+1 - You can install it directly from the repo with pip:
 ```bash
-$ pip install muse-maskgit-pytorch
+$ pip install git+https://github.com/Sygil-Dev/muse-maskgit-pytorch
+```
+2 - or you can clone it and then install from source:
+```bash
+$ git clone https://github.com/Sygil-Dev/muse-maskgit-pytorch
+$ cd muse-maskgit-pytorch
+$ pip install .
 ```
 
 ## Usage
@@ -109,7 +120,6 @@ images = base_maskgit.generate(texts = [
 
 images.shape # (3, 3, 256, 256)
 ```
-
 
 To train the super-resolution maskgit requires you to change 1 field on `MaskGit` instantiation (you will need to now pass in the `cond_image_size`, as the previous image size being conditioned on)
 
@@ -217,28 +227,37 @@ images = muse([
 
 images # List[PIL.Image.Image]
 ```
+
 ## Training
 
 Training should be done in 4 stages.
+
 1. Training base VAE(swap out the dataset_name with your huggingface dataset)
-```
-accelerate launch train_muse_vae.py --dataset_name="Isamu136/big-animal-dataset"
-```
+   
+   ```
+   accelerate launch train_muse_vae.py --dataset_name="Isamu136/big-animal-dataset"
+   ```
 2. Once you trained enough in the base VAE, move the checkpoint of your latest version to a new location. Then, do
-```
-accelerate launch train_muse_maskgit.py --dataset_name="Isamu136/big-animal-dataset" --vae_path=path_to_vae_checkpoint
-```
-Alternatively, if you want to use a pretrained autoencoder, download one from [here](https://github.com/CompVis/taming-transformers) and then extract it. In the below code, we are using vqgan_imagenet_f16_1024. Change the paths accordingly
-```
-accelerate launch train_muse_maskgit.py --dataset_name="Isamu136/big-animal-dataset" --taming_model_path="models/image_net_f16/ckpts/last.ckpt" --taming_config_path="models/image_net_f16/configs/model.yaml" --validation_prompt="elephant"
-```
-or if you want to train on cifar10, try
+   
+   ```
+   accelerate launch train_muse_maskgit.py --dataset_name="Isamu136/big-animal-dataset" --vae_path=path_to_vae_checkpoint
+   ```
+   
+   Alternatively, if you want to use a pretrained autoencoder, download one from [here](https://github.com/CompVis/taming-transformers) and then extract it. In the below code, we are using vqgan_imagenet_f16_1024. Change the paths accordingly
+   
+   ```
+   accelerate launch train_muse_maskgit.py --dataset_name="Isamu136/big-animal-dataset" --taming_model_path="models/image_net_f16/ckpts/last.ckpt" --taming_config_path="models/image_net_f16/configs/model.yaml" --validation_prompt="elephant"
+   ```
+   
+   or if you want to train on cifar10, try
 
 ```
 accelerate launch train_muse_maskgit.py --dataset_name="cifar10" --taming_model_path="models/image_net_f16/ckpts/last.ckpt" --taming_config_path="models/image_net_f16/configs/model.yaml" --validation_prompt="0" --image_column="img" --caption_column="label"
 ```
-## Appreciation
 
+## Appreciation
+- [Lucidrains](https://github.com/lucidrains/muse-maskgit-pytorch) for the original Muse-Maskgit-Pytorch implementation.
+- The [ShoukanLabs](https://github.com/ShoukanLabs) team for contributing so much to improving the code and adding new features.
 - <a href="https://stability.ai/">StabilityAI</a> for the sponsorship, as well as my other sponsors, for affording me the independence to open source artificial intelligence.
 
 - <a href="https://huggingface.co/">🤗 Huggingface</a> for the transformers and accelerate library, both which are wonderful
@@ -246,12 +265,17 @@ accelerate launch train_muse_maskgit.py --dataset_name="cifar10" --taming_model_
 ## Todo
 
 - [x] test end-to-end
+
 - [x] separate cond_images_or_ids, it is not done right
+
 - [x] add training code for vae
+
 - [x] add optional self-conditioning on embeddings
+
 - [x] combine with token critic paper, already implemented at <a href="https://github.com/lucidrains/phenaki-pytorch">Phenaki</a>
 
 - [x] hook up accelerate training code for maskgit
+
 - [ ] train a base model
 
 ## Citations
