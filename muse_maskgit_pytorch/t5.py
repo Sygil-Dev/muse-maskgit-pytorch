@@ -7,7 +7,10 @@ import torch
 from beartype import beartype
 from torch import Tensor
 from transformers import T5Config, T5EncoderModel, T5Tokenizer
+import warnings
 
+# disable t5 warnings and a few others to keep the console clean and nice.
+warnings.filterwarnings("ignore")
 
 # dataclass for T5 model info
 @dataclass
