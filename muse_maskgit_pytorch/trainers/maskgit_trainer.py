@@ -79,6 +79,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.save_results_every = save_results_every
         self.log_metrics_every = log_metrics_every
         self.batch_size = batch_size
+        self.current_step = current_step
 
         # arguments used for the training script,
         # we are going to use them later to save them to a config file.
@@ -147,7 +148,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index}][Worker]"
 
         # logs
-        for epoch in range(self.num_epochs):
+        for epoch in range(self.current_step // len(self.dl), self.num_epochs):
             for imgs, input_ids, attn_mask in iter(self.dl):
                 train_loss = 0.0
                 steps = int(self.steps.item())
