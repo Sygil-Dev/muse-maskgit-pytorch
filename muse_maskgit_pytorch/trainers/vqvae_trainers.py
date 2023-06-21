@@ -91,6 +91,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         # we are going to use them later to save them to a config file.
         self.args = args
 
+        self.current_step = current_step
+
         # vae
         self.model = vae
 
@@ -220,7 +222,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         else:
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
 
-        for epoch in range(self.num_epochs):
+        for epoch in range(self.current_step // len(self.dl), self.num_epochs):
             for img in self.dl:
                 loss = 0.0
                 steps = int(self.steps.item())
