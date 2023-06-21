@@ -579,7 +579,7 @@ def main():
             print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                print("Finding latest checkpoint...")
+                print("Finding latest VAE checkpoint...")
                 orig_vae_path = args.vae_path
 
                 if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
@@ -596,24 +596,24 @@ def main():
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
                         latest_checkpoint_file, os.R_OK
                     ):
-                        print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        print(f"Warning: latest VAE checkpoint {latest_checkpoint_file} is empty or unreadable.")
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
                             latest_checkpoint_file = max(
                                 checkpoint_files[:-1],
                                 key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1)),
                             )
-                            print("Using second last checkpoint: ", latest_checkpoint_file)
+                            print("Using second last VAE checkpoint: ", latest_checkpoint_file)
                         else:
                             print("No usable checkpoint found.")
                     elif latest_checkpoint_file != orig_vae_path:
                         print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        print("Using checkpoint specified in vae_path: ", orig_vae_path)
+                        print("Using VAE checkpoint specified in vae_path: ", orig_vae_path)
 
                     args.vae_path = latest_checkpoint_file
                 else:
-                    print("No checkpoints found in directory: ", args.vae_path)
+                    print("No VAE checkpoints found in directory: ", args.vae_path)
             else:
                 print("Resuming VAE from: ", args.vae_path)
 
@@ -698,10 +698,11 @@ def main():
     with accelerator.main_process_first():
         if args.resume_path:
             load = True
-            accelerator.print(f"Resuming MaskGit from: {args.resume_path}")
+
+            accelerator.print("Loading Muse MaskGit...")
 
             if args.latest_checkpoint:
-                accelerator.print("Finding latest checkpoint...")
+                accelerator.print("Finding latest MaskGit checkpoint...")
                 orig_vae_path = args.resume_path
 
                 if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
@@ -729,7 +730,7 @@ def main():
                         latest_checkpoint_file, os.R_OK
                     ):
                         accelerator.print(
-                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
+                            f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable."
                         )
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
@@ -743,18 +744,18 @@ def main():
                                     checkpoint_files[:-1],
                                     key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
                                 )
-                            accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                            accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
                         else:
-                            accelerator.print("No usable checkpoint found.")
+                            accelerator.print("No usable MaskGit checkpoint found.")
                             load = False
                     elif latest_checkpoint_file != orig_vae_path:
                         accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("Using checkpoint specified in resume_path: ", orig_vae_path)
+                        accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
 
                     args.resume_path = latest_checkpoint_file
                 else:
-                    accelerator.print("No checkpoints found in directory: ", args.resume_path)
+                    accelerator.print("No MaskGit checkpoints found in directory: ", args.resume_path)
                     load = False
             else:
                 accelerator.print("Resuming MaskGit from: ", args.resume_path)
