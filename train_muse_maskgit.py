@@ -596,7 +596,9 @@ def main():
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
                         latest_checkpoint_file, os.R_OK
                     ):
-                        print(f"Warning: latest VAE checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        print(
+                            f"Warning: latest VAE checkpoint {latest_checkpoint_file} is empty or unreadable."
+                        )
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
                             latest_checkpoint_file = max(
@@ -744,14 +746,18 @@ def main():
                                     checkpoint_files[:-1],
                                     key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
                                 )
-                            accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
+                            accelerator.print(
+                                "Using second last MaskGit checkpoint: ", latest_checkpoint_file
+                            )
                         else:
                             accelerator.print("No usable MaskGit checkpoint found.")
                             load = False
                     elif latest_checkpoint_file != orig_vae_path:
                         accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
+                        accelerator.print(
+                            "Using MaskGit checkpoint specified in resume_path: ", orig_vae_path
+                        )
 
                     args.resume_path = latest_checkpoint_file
                 else:
