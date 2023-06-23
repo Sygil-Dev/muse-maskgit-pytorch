@@ -112,6 +112,12 @@ parser.add_argument(
     default="A photo of a dog",
     help="Validation prompt(s), pipe | separated",
 )
+parser.add_argument(
+    "--timesteps",
+    type=int,
+    default=18,
+    help="Number of steps to use when generating the validation image. Defautl: 18",
+)
 parser.add_argument("--max_grad_norm", type=float, default=None, help="Max gradient norm.")
 parser.add_argument("--seed", type=int, default=42, help="Training seed.")
 parser.add_argument(
@@ -430,6 +436,7 @@ class Arguments:
     t5_name: str = "t5-small"
     cond_image_size: Optional[int] = None
     validation_prompt: str = "A photo of a dog"
+    timesteps: int = 18
     max_grad_norm: Optional[float] = None
     seed: int = 42
     valid_frac: float = 0.05
@@ -910,6 +917,7 @@ def main():
         apply_grad_penalty_every=args.apply_grad_penalty_every,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         validation_prompts=args.validation_prompt.split("|"),
+        timesteps=args.timesteps,
         clear_previous_experiments=args.clear_previous_experiments,
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
