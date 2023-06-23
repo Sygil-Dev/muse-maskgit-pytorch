@@ -248,7 +248,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         )
 
                     saved_image = self.save_validation_images(
-                        self.validation_prompts, steps, cond_image=cond_image, timesteps=self.timesteps,
+                        self.validation_prompts,
+                        steps,
+                        cond_image=cond_image,
+                        timesteps=self.timesteps,
                     )
                     if self.on_tpu:
                         self.accelerator.print(
