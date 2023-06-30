@@ -84,7 +84,7 @@ parser.add_argument(
 parser.add_argument(
     "--logging_dir",
     type=str,
-    default="results/logs",
+    default=None,
     help="Path to log the losses and LR",
 )
 
@@ -224,7 +224,7 @@ class Arguments:
     mixed_precision: str = "no"
     use_8bit_adam: bool = False
     results_dir: str = "results"
-    logging_dir: str = "results/logs"
+    logging_dir: Optional[str] = None
     resume_path: Optional[str] = None
     dataset_name: Optional[str] = None
     streaming: bool = False
@@ -288,7 +288,7 @@ def main():
     args = parser.parse_args(namespace=Arguments())
 
     project_config = ProjectConfiguration(
-        project_dir=args.logging_dir,
+        project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         automatic_checkpoint_naming=True,
     )
 
