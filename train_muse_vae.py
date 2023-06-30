@@ -136,7 +136,7 @@ parser.add_argument(
     "--mixed_precision",
     type=str,
     default="no",
-    choices=["no", "fp16", "bf16"],
+    choices=["no", "fp8", "fp16", "bf16"],
     help="Precision to train on.",
 )
 parser.add_argument(
@@ -153,7 +153,7 @@ parser.add_argument(
 parser.add_argument(
     "--logging_dir",
     type=str,
-    default="results/logs",
+    default=None,
     help="Path to log the losses and LR",
 )
 
@@ -338,7 +338,7 @@ class Arguments:
     mixed_precision: str = "no"
     use_8bit_adam: bool = False
     results_dir: str = "results"
-    logging_dir: str = "results/logs"
+    logging_dir: Optional[str] = None
     resume_path: Optional[str] = None
     dataset_name: Optional[str] = None
     streaming: bool = False
@@ -398,7 +398,7 @@ def main():
             print("Could not find config, using default and parsed values...")
 
     project_config = ProjectConfiguration(
-        project_dir=args.logging_dir,
+        project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         total_limit=args.checkpoint_limit,
         automatic_checkpoint_naming=True,
     )
@@ -570,7 +570,7 @@ def main():
         save_results_every=args.save_results_every,
         save_model_every=args.save_model_every,
         results_dir=args.results_dir,
-        logging_dir=args.logging_dir,
+        logging_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         use_ema=args.use_ema,
         ema_beta=args.ema_beta,
         ema_update_after_step=args.ema_update_after_step,

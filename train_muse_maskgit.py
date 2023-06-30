@@ -203,7 +203,7 @@ parser.add_argument(
 parser.add_argument(
     "--logging_dir",
     type=str,
-    default="results/logs",
+    default=None,
     help="Path to log the losses and LR",
 )
 
@@ -451,7 +451,7 @@ class Arguments:
     mixed_precision: str = "no"
     use_8bit_adam: bool = False
     results_dir: str = "results"
-    logging_dir: str = "results/logs"
+    logging_dir: Optional[str] = None
     vae_path: Optional[str] = None
     dataset_name: Optional[str] = None
     hf_split_name: Optional[str] = None
@@ -526,7 +526,7 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     project_config = ProjectConfiguration(
-        project_dir=args.logging_dir,
+        project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         total_limit=args.checkpoint_limit,
         automatic_checkpoint_naming=True,
     )
@@ -910,7 +910,7 @@ def main():
         save_results_every=args.save_results_every,
         save_model_every=args.save_model_every,
         results_dir=args.results_dir,
-        logging_dir=args.logging_dir,
+        logging_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         use_ema=args.use_ema,
         ema_update_after_step=args.ema_update_after_step,
         ema_update_every=args.ema_update_every,
