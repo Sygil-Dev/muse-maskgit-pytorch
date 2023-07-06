@@ -790,6 +790,12 @@ def main():
             accelerator.print("Initialized new empty MaskGit model.")
             current_step = 0
 
+
+    # Use the parameters() method to get an iterator over all the learnable parameters of the model
+    total_params = sum(p.numel() for p in maskgit.parameters())
+
+    print(f"Total number of parameters: {format(total_params, ',d')}")
+
     # Create the dataset objects
     with accelerator.main_process_first():
         if args.no_cache and args.train_data_dir:
