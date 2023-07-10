@@ -222,6 +222,9 @@ parser.add_argument(
 )
 parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
+parser.add_argument("--channels", type=int, default=3, help="Number of channels for the VAE.")
+parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
+parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
     "--image_size",
     type=int,
@@ -460,8 +463,11 @@ def main():
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
-            accelerator=accelerator,
             l2_recon_loss=args.use_l2_recon_loss,
+            channels=args.channels,
+            layers=args.layers,
+            discr_layers=args.discr_layers,
+            accelerator=accelerator,
         )
 
         if args.latest_checkpoint:
@@ -536,6 +542,9 @@ def main():
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
+            channels=args.channels,
+            layers=args.layers,
+            discr_layers=args.discr_layers,
             accelerator=accelerator,
         )
 

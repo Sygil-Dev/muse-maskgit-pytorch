@@ -112,6 +112,9 @@ parser.add_argument("--batch_size", type=int, default=512, help="Batch Size.")
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate.")
 parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
+parser.add_argument("--channels", type=int, default=3, help="Number of channels for the VAE.")
+parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
+parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
     "--image_size",
     type=int,
@@ -345,7 +348,12 @@ def main():
     if args.vae_path and not args.use_paintmind:
         accelerator.print("Loading Muse VQGanVAE")
         vae = VQGanVAE(
-            dim=args.dim, vq_codebook_size=args.vq_codebook_size, vq_codebook_dim=args.vq_codebook_dim
+            dim=args.dim,
+            vq_codebook_size=args.vq_codebook_size,
+            vq_codebook_dim=args.vq_codebook_dim,
+            channels=args.channels,
+            layers=args.layers,
+            discr_layers=args.discr_layers,
         ).to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
         if args.latest_checkpoint:
