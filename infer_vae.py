@@ -421,7 +421,6 @@ def main():
     # move vae to device
     vae = vae.to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
-
     # Use the parameters() method to get an iterator over all the learnable parameters of the model
     total_params = sum(p.numel() for p in vae.parameters())
 
