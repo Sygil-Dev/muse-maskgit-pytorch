@@ -298,6 +298,9 @@ parser.add_argument(
     help="Image Size.",
 )
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
+parser.add_argument("--channels", type=int, default=3, help="Number of channels for the VAE.")
+parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
+parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
     "--cond_drop_prob",
     type=float,
@@ -640,6 +643,9 @@ def main():
                 vq_codebook_dim=args.vq_codebook_dim,
                 vq_codebook_size=args.vq_codebook_size,
                 l2_recon_loss=args.use_l2_recon_loss,
+                channels=args.channels,
+                layers=args.layers,
+                discr_layers=args.discr_layers,
             ).to(accelerator.device)
             vae.load(args.vae_path)
 
@@ -789,7 +795,6 @@ def main():
         else:
             accelerator.print("Initialized new empty MaskGit model.")
             current_step = 0
-
 
     # Use the parameters() method to get an iterator over all the learnable parameters of the model
     total_params = sum(p.numel() for p in maskgit.parameters())
