@@ -298,7 +298,7 @@ parser.add_argument(
     help="Image Size.",
 )
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
-parser.add_argument("--channels", type=int, default=3, help="Number of channels for the VAE.")
+parser.add_argument("--channels", type=int, default=3, help="Number of channels for the VAE. Use 3 for RGB or 4 for RGBA.")
 parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
 parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
@@ -812,6 +812,7 @@ def main():
                 flip=False if args.no_flip else True,
                 using_taming=False if not args.taming_model_path else True,
                 random_crop=args.random_crop if args.random_crop else False,
+                alpha_channel=False if args.channels == 3 else True,
             )
         elif args.link:
             if not args.dataset_name:

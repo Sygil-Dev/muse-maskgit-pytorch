@@ -156,7 +156,7 @@ class LayerNormChan(nn.Module):
 
 # discriminator
 class Discriminator(nn.Module):
-    def __init__(self, dims, channels=3, groups=16, init_kernel_size=5):
+    def __init__(self, dims, channels=4, groups=16, init_kernel_size=5):
         super().__init__()
         dim_pairs = zip(dims[:-1], dims[1:])
 
@@ -194,7 +194,7 @@ class ResnetEncDec(nn.Module):
         self,
         dim: int,
         *,
-        channels=3,
+        channels=4,
         layers=4,
         layer_mults=None,
         num_resnet_blocks=1,
@@ -337,7 +337,7 @@ class VQGanVAE(nn.Module):
         *,
         dim: int,
         accelerator: Accelerator = None,
-        channels=3,
+        channels=4,
         layers=4,
         l2_recon_loss=False,
         use_hinge_loss=True,
@@ -407,10 +407,12 @@ class VQGanVAE(nn.Module):
         if exists(self._vgg):
             return self._vgg
 
-        vgg = torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT)
+        vgg = torchvision.models.vgg16(pretrained=True)
+        vgg.features[0] = nn.Conv2d(self.channels, 64, kernel_size=3, stride=1, padding=1)
         vgg.classifier = nn.Sequential(*vgg.classifier[:-2])
         self._vgg = vgg.to(self.device)
         return self._vgg
+
 
     @property
     def encoded_dim(self):

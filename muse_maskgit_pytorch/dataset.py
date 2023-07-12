@@ -45,15 +45,17 @@ class ImageDataset(Dataset):
         stream=False,
         using_taming=False,
         random_crop=False,
+        alpha_channel=True
     ):
         super().__init__()
         self.dataset = dataset
         self.image_column = image_column
         self.stream = stream
         transform_list = [
-            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
+            T.Lambda(lambda img: img.convert("RGBA") if img.mode != "RGBA" and alpha_channel else img if img.mode == "RGB" and not alpha_channel else img.convert("RGB")),
             T.Resize(image_size),
         ]
+
         if flip:
             transform_list.append(T.RandomHorizontalFlip())
         if center_crop and not random_crop:
@@ -199,7 +201,7 @@ class URLTextDataset(ImageDataset):
 
 class LocalTextImageDataset(Dataset):
     def __init__(
-        self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False
+        self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False, alpha_channel=False
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -229,7 +231,7 @@ class LocalTextImageDataset(Dataset):
             self.caption_pair.append(captions)
 
         transform_list = [
-            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
+            T.Lambda(lambda img: img.convert("RGBA") if img.mode != "RGBA" and alpha_channel else img if img.mode == "RGB" and not alpha_channel else img.convert("RGB")),
             T.Resize(image_size),
         ]
         if flip:
