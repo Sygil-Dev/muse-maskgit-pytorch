@@ -413,7 +413,6 @@ class VQGanVAE(nn.Module):
         self._vgg = vgg.to(self.device)
         return self._vgg
 
-
     @property
     def encoded_dim(self):
         return self.enc_dec.encoded_dim

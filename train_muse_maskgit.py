@@ -298,7 +298,9 @@ parser.add_argument(
     help="Image Size.",
 )
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
-parser.add_argument("--channels", type=int, default=3, help="Number of channels for the VAE. Use 3 for RGB or 4 for RGBA.")
+parser.add_argument(
+    "--channels", type=int, default=3, help="Number of channels for the VAE. Use 3 for RGB or 4 for RGBA."
+)
 parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
 parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
