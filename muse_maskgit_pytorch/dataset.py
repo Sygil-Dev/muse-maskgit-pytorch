@@ -62,15 +62,9 @@ class ImageDataset(Dataset):
         if random_crop:
             transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
         if alpha_channel:
-            transform_list.append(T.Lambda(
-                lambda img: img.convert("RGBA")
-                if img.mode != "RGBA" else img
-            ))
+            transform_list.append(T.Lambda(lambda img: img.convert("RGBA") if img.mode != "RGBA" else img))
         else:
-            transform_list.append(T.Lambda(
-                lambda img: img.convert("RGB")
-                if img.mode != "RGB" else img
-            ))
+            transform_list.append(T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img))
 
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
