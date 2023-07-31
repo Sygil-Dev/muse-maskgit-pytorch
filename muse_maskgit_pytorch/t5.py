@@ -45,7 +45,7 @@ class T5ModelInfo:
 
 
 # config
-MAX_LENGTH = 256
+MAX_LENGTH = 512
 DEFAULT_T5_NAME = "google/t5-v1_1-base"
 T5_OBJECTS: Dict[str, T5ModelInfo] = {}
 

@@ -493,6 +493,7 @@ class Arguments:
     debug: bool = False
     config_path: Optional[str] = None
     attention_type: str = "flash"
+    total_params: Optional[int] = None
 
 
 def main():
@@ -800,6 +801,7 @@ def main():
 
     # Use the parameters() method to get an iterator over all the learnable parameters of the model
     total_params = sum(p.numel() for p in maskgit.parameters())
+    args.total_params = total_params
 
     print(f"Total number of parameters: {format(total_params, ',d')}")
 
