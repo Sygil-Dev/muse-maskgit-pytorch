@@ -52,13 +52,6 @@ class ImageDataset(Dataset):
         self.image_column = image_column
         self.stream = stream
         transform_list = [
-            T.Lambda(
-                lambda img: img.convert("RGBA")
-                if img.mode != "RGBA" and alpha_channel
-                else img
-                if img.mode == "RGB" and not alpha_channel
-                else img.convert("RGB")
-            ),
             T.Resize(image_size),
         ]
 
@@ -68,6 +61,17 @@ class ImageDataset(Dataset):
             transform_list.append(T.CenterCrop(image_size))
         if random_crop:
             transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
+        if alpha_channel:
+            transform_list.append(T.Lambda(
+                lambda img: img.convert("RGBA")
+                if img.mode != "RGBA" else img
+            ))
+        else:
+            transform_list.append(T.Lambda(
+                lambda img: img.convert("RGB")
+                if img.mode != "RGB" else img
+            ))
+
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
         self.using_taming = using_taming
