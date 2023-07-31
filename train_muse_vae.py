@@ -319,6 +319,7 @@ parser.add_argument(
 
 @dataclass
 class Arguments:
+    total_params: Optional[int] = None
     only_save_last_checkpoint: bool = False
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
@@ -458,7 +459,7 @@ def main():
                 else:
                     dataset = load_dataset(args.dataset_name)[args.hf_split_name]
 
-    if args.resume_path is not None:
+    if args.resume_path is not None and len(args.resume_path) > 1:
         load = True
         accelerator.print(f"Using Muse VQGanVAE, loading from {args.resume_path}")
         vae = VQGanVAE(
@@ -554,6 +555,7 @@ def main():
 
     # Use the parameters() method to get an iterator over all the learnable parameters of the model
     total_params = sum(p.numel() for p in vae.parameters())
+    args.total_params = total_params
 
     print(f"Total number of parameters: {format(total_params, ',d')}")
 
