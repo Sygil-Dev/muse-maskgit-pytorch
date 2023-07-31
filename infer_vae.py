@@ -445,7 +445,11 @@ def main():
 
         os.makedirs(f"{args.results_dir}/outputs", exist_ok=True)
 
-        save_image(dataset[image_id], f"{args.results_dir}/outputs/input.{str(args.input_image).split('.')[-1]}", format="PNG")
+        save_image(
+            dataset[image_id],
+            f"{args.results_dir}/outputs/input.{str(args.input_image).split('.')[-1]}",
+            format="PNG",
+        )
 
         _, ids, _ = vae.encode(
             dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
@@ -503,7 +507,8 @@ def main():
 
                     # Create horizontal grid with input and output images
                     grid_image = PIL.Image.new(
-                        "RGB" if args.channels == 3 else "RGBA", (input_image.width + output_image.width, input_image.height)
+                        "RGB" if args.channels == 3 else "RGBA",
+                        (input_image.width + output_image.width, input_image.height),
                     )
                     grid_image.paste(input_image, (0, 0))
                     grid_image.paste(output_image, (input_image.width, 0))
