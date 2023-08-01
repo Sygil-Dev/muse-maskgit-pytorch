@@ -426,6 +426,7 @@ parser.add_argument(
 
 @dataclass
 class Arguments:
+    total_params: Optional[int] = None
     only_save_last_checkpoint: bool = False
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
@@ -493,7 +494,6 @@ class Arguments:
     debug: bool = False
     config_path: Optional[str] = None
     attention_type: str = "flash"
-    total_params: Optional[int] = None
 
 
 def main():
@@ -714,7 +714,7 @@ def main():
 
     # load the maskgit transformer from disk if we have previously trained one
     with accelerator.main_process_first():
-        if args.resume_path:
+        if args.resume_path is not None and len(args.resume_path) > 1:
             load = True
 
             accelerator.print("Loading Muse MaskGit...")
