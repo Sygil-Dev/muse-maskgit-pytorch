@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 from os import PathLike
@@ -7,6 +8,9 @@ import torch
 from beartype import beartype
 from torch import Tensor
 from transformers import T5Config, T5EncoderModel, T5Tokenizer
+
+# disable t5 warnings and a few others to keep the console clean and nice.
+warnings.filterwarnings("ignore")
 
 
 # dataclass for T5 model info
@@ -41,7 +45,7 @@ class T5ModelInfo:
 
 
 # config
-MAX_LENGTH = 256
+MAX_LENGTH = 512
 DEFAULT_T5_NAME = "google/t5-v1_1-base"
 T5_OBJECTS: Dict[str, T5ModelInfo] = {}
 

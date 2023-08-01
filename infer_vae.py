@@ -84,7 +84,7 @@ parser.add_argument(
 parser.add_argument(
     "--logging_dir",
     type=str,
-    default="results/logs",
+    default=None,
     help="Path to log the losses and LR",
 )
 
@@ -112,6 +112,11 @@ parser.add_argument("--batch_size", type=int, default=512, help="Batch Size.")
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate.")
 parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
+parser.add_argument(
+    "--channels", type=int, default=3, help="Number of channels for the VAE. Use 3 for RGB or 4 for RGBA."
+)
+parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
+parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
     "--image_size",
     type=int,
@@ -224,7 +229,7 @@ class Arguments:
     mixed_precision: str = "no"
     use_8bit_adam: bool = False
     results_dir: str = "results"
-    logging_dir: str = "results/logs"
+    logging_dir: Optional[str] = None
     resume_path: Optional[str] = None
     dataset_name: Optional[str] = None
     streaming: bool = False
@@ -288,7 +293,7 @@ def main():
     args = parser.parse_args(namespace=Arguments())
 
     project_config = ProjectConfiguration(
-        project_dir=args.logging_dir,
+        project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         automatic_checkpoint_naming=True,
     )
 
@@ -345,7 +350,12 @@ def main():
     if args.vae_path and not args.use_paintmind:
         accelerator.print("Loading Muse VQGanVAE")
         vae = VQGanVAE(
-            dim=args.dim, vq_codebook_size=args.vq_codebook_size, vq_codebook_dim=args.vq_codebook_dim
+            dim=args.dim,
+            vq_codebook_size=args.vq_codebook_size,
+            vq_codebook_dim=args.vq_codebook_dim,
+            channels=args.channels,
+            layers=args.layers,
+            discr_layers=args.discr_layers,
         ).to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
         if args.latest_checkpoint:
@@ -413,6 +423,11 @@ def main():
     # move vae to device
     vae = vae.to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
+    # Use the parameters() method to get an iterator over all the learnable parameters of the model
+    total_params = sum(p.numel() for p in vae.parameters())
+
+    print(f"Total number of parameters: {format(total_params, ',d')}")
+
     # then you plug the vae and transformer into your MaskGit as so
 
     dataset = ImageDataset(
@@ -422,6 +437,7 @@ def main():
         center_crop=True if not args.no_center_crop and not args.random_crop else False,
         flip=not args.no_flip,
         random_crop=args.random_crop if args.random_crop else False,
+        alpha_channel=False if args.channels == 3 else True,
     )
 
     if args.input_image and not args.input_folder:
@@ -430,7 +446,9 @@ def main():
         os.makedirs(f"{args.results_dir}/outputs", exist_ok=True)
 
         save_image(
-            dataset[image_id], f"{args.results_dir}/outputs/input.{str(args.input_image).split('.')[-1]}"
+            dataset[image_id],
+            f"{args.results_dir}/outputs/input.{str(args.input_image).split('.')[-1]}",
+            format="PNG",
         )
 
         _, ids, _ = vae.encode(
@@ -489,7 +507,8 @@ def main():
 
                     # Create horizontal grid with input and output images
                     grid_image = PIL.Image.new(
-                        "RGB", (input_image.width + output_image.width, input_image.height)
+                        "RGB" if args.channels == 3 else "RGBA",
+                        (input_image.width + output_image.width, input_image.height),
                     )
                     grid_image.paste(input_image, (0, 0))
                     grid_image.paste(output_image, (input_image.width, 0))
@@ -499,7 +518,7 @@ def main():
                     hash = hashlib.sha1(input_image.tobytes()).hexdigest()
 
                     filename = f"{hash}_{now}-{os.path.basename(args.vae_path)}.png"
-                    grid_image.save(f"{output_dir}/{filename}")
+                    grid_image.save(f"{output_dir}/{filename}", format="PNG")
 
                     # Remove input and output images after the grid was made.
                     os.remove(f"{output_dir}/input.png")

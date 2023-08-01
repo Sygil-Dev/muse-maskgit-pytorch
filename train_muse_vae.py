@@ -136,7 +136,7 @@ parser.add_argument(
     "--mixed_precision",
     type=str,
     default="no",
-    choices=["no", "fp16", "bf16"],
+    choices=["no", "fp8", "fp16", "bf16"],
     help="Precision to train on.",
 )
 parser.add_argument(
@@ -153,7 +153,7 @@ parser.add_argument(
 parser.add_argument(
     "--logging_dir",
     type=str,
-    default="results/logs",
+    default=None,
     help="Path to log the losses and LR",
 )
 
@@ -222,6 +222,11 @@ parser.add_argument(
 )
 parser.add_argument("--vq_codebook_size", type=int, default=256, help="Image Size.")
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
+parser.add_argument(
+    "--channels", type=int, default=3, help="Number of channels for the VAE. Use 3 for RGB or 4 for RGBA."
+)
+parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
+parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
     "--image_size",
     type=int,
@@ -314,6 +319,7 @@ parser.add_argument(
 
 @dataclass
 class Arguments:
+    total_params: Optional[int] = None
     only_save_last_checkpoint: bool = False
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
@@ -338,7 +344,7 @@ class Arguments:
     mixed_precision: str = "no"
     use_8bit_adam: bool = False
     results_dir: str = "results"
-    logging_dir: str = "results/logs"
+    logging_dir: Optional[str] = None
     resume_path: Optional[str] = None
     dataset_name: Optional[str] = None
     streaming: bool = False
@@ -398,7 +404,7 @@ def main():
             print("Could not find config, using default and parsed values...")
 
     project_config = ProjectConfiguration(
-        project_dir=args.logging_dir,
+        project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         total_limit=args.checkpoint_limit,
         automatic_checkpoint_naming=True,
     )
@@ -453,15 +459,18 @@ def main():
                 else:
                     dataset = load_dataset(args.dataset_name)[args.hf_split_name]
 
-    if args.resume_path is not None:
+    if args.resume_path is not None and len(args.resume_path) > 1:
         load = True
         accelerator.print(f"Using Muse VQGanVAE, loading from {args.resume_path}")
         vae = VQGanVAE(
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
-            accelerator=accelerator,
             l2_recon_loss=args.use_l2_recon_loss,
+            channels=args.channels,
+            layers=args.layers,
+            discr_layers=args.discr_layers,
+            accelerator=accelerator,
         )
 
         if args.latest_checkpoint:
@@ -536,10 +545,19 @@ def main():
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
             vq_codebook_size=args.vq_codebook_size,
+            channels=args.channels,
+            layers=args.layers,
+            discr_layers=args.discr_layers,
             accelerator=accelerator,
         )
 
         current_step = 0
+
+    # Use the parameters() method to get an iterator over all the learnable parameters of the model
+    total_params = sum(p.numel() for p in vae.parameters())
+    args.total_params = total_params
+
+    print(f"Total number of parameters: {format(total_params, ',d')}")
 
     dataset = ImageDataset(
         dataset,
@@ -549,6 +567,7 @@ def main():
         flip=not args.no_flip,
         stream=args.streaming,
         random_crop=args.random_crop,
+        alpha_channel=False if args.channels == 3 else True,
     )
     # dataloader
 
@@ -570,7 +589,7 @@ def main():
         save_results_every=args.save_results_every,
         save_model_every=args.save_model_every,
         results_dir=args.results_dir,
-        logging_dir=args.logging_dir,
+        logging_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         use_ema=args.use_ema,
         ema_beta=args.ema_beta,
         ema_update_after_step=args.ema_update_after_step,

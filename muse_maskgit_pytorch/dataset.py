@@ -45,21 +45,27 @@ class ImageDataset(Dataset):
         stream=False,
         using_taming=False,
         random_crop=False,
+        alpha_channel=True,
     ):
         super().__init__()
         self.dataset = dataset
         self.image_column = image_column
         self.stream = stream
         transform_list = [
-            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
             T.Resize(image_size),
         ]
+
         if flip:
             transform_list.append(T.RandomHorizontalFlip())
         if center_crop and not random_crop:
             transform_list.append(T.CenterCrop(image_size))
         if random_crop:
             transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
+        if alpha_channel:
+            transform_list.append(T.Lambda(lambda img: img.convert("RGBA") if img.mode != "RGBA" else img))
+        else:
+            transform_list.append(T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img))
+
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
         self.using_taming = using_taming
@@ -199,7 +205,15 @@ class URLTextDataset(ImageDataset):
 
 class LocalTextImageDataset(Dataset):
     def __init__(
-        self, path, image_size, tokenizer, flip=True, center_crop=True, using_taming=False, random_crop=False
+        self,
+        path,
+        image_size,
+        tokenizer,
+        flip=True,
+        center_crop=True,
+        using_taming=False,
+        random_crop=False,
+        alpha_channel=False,
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -229,7 +243,6 @@ class LocalTextImageDataset(Dataset):
             self.caption_pair.append(captions)
 
         transform_list = [
-            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
             T.Resize(image_size),
         ]
         if flip:
@@ -238,6 +251,10 @@ class LocalTextImageDataset(Dataset):
             transform_list.append(T.CenterCrop(image_size))
         if random_crop:
             transform_list.append(T.RandomCrop(image_size, pad_if_needed=True))
+        if alpha_channel:
+            transform_list.append(T.Lambda(lambda img: img.convert("RGBA") if img.mode != "RGBA" else img))
+        else:
+            transform_list.append(T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img))
         transform_list.append(T.ToTensor())
         self.transform = T.Compose(transform_list)
 

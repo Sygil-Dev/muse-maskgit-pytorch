@@ -112,6 +112,12 @@ parser.add_argument(
     default="A photo of a dog",
     help="Validation prompt(s), pipe | separated",
 )
+parser.add_argument(
+    "--timesteps",
+    type=int,
+    default=18,
+    help="Number of steps to use when generating the validation image. Defautl: 18",
+)
 parser.add_argument("--max_grad_norm", type=float, default=None, help="Max gradient norm.")
 parser.add_argument("--seed", type=int, default=42, help="Training seed.")
 parser.add_argument(
@@ -197,7 +203,7 @@ parser.add_argument(
 parser.add_argument(
     "--logging_dir",
     type=str,
-    default="results/logs",
+    default=None,
     help="Path to log the losses and LR",
 )
 
@@ -292,6 +298,11 @@ parser.add_argument(
     help="Image Size.",
 )
 parser.add_argument("--vq_codebook_dim", type=int, default=256, help="VQ Codebook dimensions.")
+parser.add_argument(
+    "--channels", type=int, default=3, help="Number of channels for the VAE. Use 3 for RGB or 4 for RGBA."
+)
+parser.add_argument("--layers", type=int, default=4, help="Number of layers for the VAE.")
+parser.add_argument("--discr_layers", type=int, default=4, help="Number of layers for the VAE discriminator.")
 parser.add_argument(
     "--cond_drop_prob",
     type=float,
@@ -415,6 +426,7 @@ parser.add_argument(
 
 @dataclass
 class Arguments:
+    total_params: Optional[int] = None
     only_save_last_checkpoint: bool = False
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
@@ -430,6 +442,7 @@ class Arguments:
     t5_name: str = "t5-small"
     cond_image_size: Optional[int] = None
     validation_prompt: str = "A photo of a dog"
+    timesteps: int = 18
     max_grad_norm: Optional[float] = None
     seed: int = 42
     valid_frac: float = 0.05
@@ -444,7 +457,7 @@ class Arguments:
     mixed_precision: str = "no"
     use_8bit_adam: bool = False
     results_dir: str = "results"
-    logging_dir: str = "results/logs"
+    logging_dir: Optional[str] = None
     vae_path: Optional[str] = None
     dataset_name: Optional[str] = None
     hf_split_name: Optional[str] = None
@@ -519,7 +532,7 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     project_config = ProjectConfiguration(
-        project_dir=args.logging_dir,
+        project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         total_limit=args.checkpoint_limit,
         automatic_checkpoint_naming=True,
     )
@@ -579,7 +592,7 @@ def main():
             print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                print("Finding latest checkpoint...")
+                print("Finding latest VAE checkpoint...")
                 orig_vae_path = args.vae_path
 
                 if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
@@ -596,24 +609,26 @@ def main():
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
                         latest_checkpoint_file, os.R_OK
                     ):
-                        print(f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable.")
+                        print(
+                            f"Warning: latest VAE checkpoint {latest_checkpoint_file} is empty or unreadable."
+                        )
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
                             latest_checkpoint_file = max(
                                 checkpoint_files[:-1],
                                 key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1)),
                             )
-                            print("Using second last checkpoint: ", latest_checkpoint_file)
+                            print("Using second last VAE checkpoint: ", latest_checkpoint_file)
                         else:
                             print("No usable checkpoint found.")
                     elif latest_checkpoint_file != orig_vae_path:
                         print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        print("Using checkpoint specified in vae_path: ", orig_vae_path)
+                        print("Using VAE checkpoint specified in vae_path: ", orig_vae_path)
 
                     args.vae_path = latest_checkpoint_file
                 else:
-                    print("No checkpoints found in directory: ", args.vae_path)
+                    print("No VAE checkpoints found in directory: ", args.vae_path)
             else:
                 print("Resuming VAE from: ", args.vae_path)
 
@@ -631,6 +646,9 @@ def main():
                 vq_codebook_dim=args.vq_codebook_dim,
                 vq_codebook_size=args.vq_codebook_size,
                 l2_recon_loss=args.use_l2_recon_loss,
+                channels=args.channels,
+                layers=args.layers,
+                discr_layers=args.discr_layers,
             ).to(accelerator.device)
             vae.load(args.vae_path)
 
@@ -696,12 +714,13 @@ def main():
 
     # load the maskgit transformer from disk if we have previously trained one
     with accelerator.main_process_first():
-        if args.resume_path:
+        if args.resume_path is not None and len(args.resume_path) > 1:
             load = True
-            accelerator.print(f"Resuming MaskGit from: {args.resume_path}")
+
+            accelerator.print("Loading Muse MaskGit...")
 
             if args.latest_checkpoint:
-                accelerator.print("Finding latest checkpoint...")
+                accelerator.print("Finding latest MaskGit checkpoint...")
                 orig_vae_path = args.resume_path
 
                 if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
@@ -729,7 +748,7 @@ def main():
                         latest_checkpoint_file, os.R_OK
                     ):
                         accelerator.print(
-                            f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
+                            f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable."
                         )
                         if len(checkpoint_files) > 1:
                             # Use the second last checkpoint as a fallback
@@ -743,18 +762,22 @@ def main():
                                     checkpoint_files[:-1],
                                     key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
                                 )
-                            accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
+                            accelerator.print(
+                                "Using second last MaskGit checkpoint: ", latest_checkpoint_file
+                            )
                         else:
-                            accelerator.print("No usable checkpoint found.")
+                            accelerator.print("No usable MaskGit checkpoint found.")
                             load = False
                     elif latest_checkpoint_file != orig_vae_path:
                         accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        accelerator.print("Using checkpoint specified in resume_path: ", orig_vae_path)
+                        accelerator.print(
+                            "Using MaskGit checkpoint specified in resume_path: ", orig_vae_path
+                        )
 
                     args.resume_path = latest_checkpoint_file
                 else:
-                    accelerator.print("No checkpoints found in directory: ", args.resume_path)
+                    accelerator.print("No MaskGit checkpoints found in directory: ", args.resume_path)
                     load = False
             else:
                 accelerator.print("Resuming MaskGit from: ", args.resume_path)
@@ -776,6 +799,12 @@ def main():
             accelerator.print("Initialized new empty MaskGit model.")
             current_step = 0
 
+    # Use the parameters() method to get an iterator over all the learnable parameters of the model
+    total_params = sum(p.numel() for p in maskgit.parameters())
+    args.total_params = total_params
+
+    print(f"Total number of parameters: {format(total_params, ',d')}")
+
     # Create the dataset objects
     with accelerator.main_process_first():
         if args.no_cache and args.train_data_dir:
@@ -787,6 +816,7 @@ def main():
                 flip=False if args.no_flip else True,
                 using_taming=False if not args.taming_model_path else True,
                 random_crop=args.random_crop if args.random_crop else False,
+                alpha_channel=False if args.channels == 3 else True,
             )
         elif args.link:
             if not args.dataset_name:
@@ -896,13 +926,14 @@ def main():
         save_results_every=args.save_results_every,
         save_model_every=args.save_model_every,
         results_dir=args.results_dir,
-        logging_dir=args.logging_dir,
+        logging_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         use_ema=args.use_ema,
         ema_update_after_step=args.ema_update_after_step,
         ema_update_every=args.ema_update_every,
         apply_grad_penalty_every=args.apply_grad_penalty_every,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         validation_prompts=args.validation_prompt.split("|"),
+        timesteps=args.timesteps,
         clear_previous_experiments=args.clear_previous_experiments,
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,

@@ -53,6 +53,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         ema_update_after_step=0,
         ema_update_every=1,
         validation_prompts=["a photo of a dog"],
+        timesteps=18,
         clear_previous_experiments=False,
         validation_image_scale: float = 1.0,
         only_save_last_checkpoint=False,
@@ -79,6 +80,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         self.save_results_every = save_results_every
         self.log_metrics_every = log_metrics_every
         self.batch_size = batch_size
+        self.current_step = current_step
+        self.timesteps = timesteps
 
         # arguments used for the training script,
         # we are going to use them later to save them to a config file.
@@ -113,7 +116,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             self.info_bar = tqdm(total=0, bar_format="{desc}")
 
     def save_validation_images(
-        self, validation_prompts, step: int, cond_image=None, cond_scale=3, temperature=1
+        self, validation_prompts, step: int, cond_image=None, cond_scale=3, temperature=1, timesteps=18
     ):
         # moved the print to the top of the function so it shows before the progress bar for reability.
         if validation_prompts:
@@ -126,6 +129,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             cond_images=cond_image,
             cond_scale=cond_scale,
             temperature=temperature,
+            timesteps=timesteps,
         ).to(self.accelerator.device)
 
         save_dir = self.results_dir.joinpath("MaskGit")
@@ -147,7 +151,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             proc_label = f"[P{self.accelerator.process_index}][Worker]"
 
         # logs
-        for epoch in range(self.num_epochs):
+        for epoch in range(self.current_step // len(self.dl), self.num_epochs):
             for imgs, input_ids, attn_mask in iter(self.dl):
                 train_loss = 0.0
                 steps = int(self.steps.item())
@@ -244,7 +248,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                         )
 
                     saved_image = self.save_validation_images(
-                        self.validation_prompts, steps, cond_image=cond_image
+                        self.validation_prompts,
+                        steps,
+                        cond_image=cond_image,
+                        timesteps=self.timesteps,
                     )
                     if self.on_tpu:
                         self.accelerator.print(
