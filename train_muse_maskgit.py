@@ -361,11 +361,11 @@ parser.add_argument(
 parser.add_argument(
     "--optimizer",
     type=str,
-    default="Adafactor",
+    default="Adam",
     help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion', 'Adafactor', "
     "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
     "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
-    "'SWATS', 'Yogi']. Default: Lion",
+    "'SWATS', 'Yogi']. Default: Adam",
 )
 parser.add_argument(
     "--weight_decay",
