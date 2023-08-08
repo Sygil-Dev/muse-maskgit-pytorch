@@ -185,6 +185,11 @@ parser.add_argument(
     help="GPU to use in case we want to use a specific GPU for inference.",
 )
 parser.add_argument(
+    "--cpu",
+    action="store_true",
+    help="Use the CPU instead of the GPU, this will be really slow but can be useful for testing or if you dont have a good GPU.",
+)
+parser.add_argument(
     "--max_retries",
     type=int,
     default=30,
@@ -356,7 +361,7 @@ def main():
             channels=args.channels,
             layers=args.layers,
             discr_layers=args.discr_layers,
-        ).to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+        ).to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
         if args.latest_checkpoint:
             accelerator.print("Finding latest checkpoint...")
@@ -421,7 +426,7 @@ def main():
         args.seq_len = vae.get_encoded_fmap_size(args.image_size) ** 2
 
     # move vae to device
-    vae = vae.to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+    vae = vae.to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
     # Use the parameters() method to get an iterator over all the learnable parameters of the model
     total_params = sum(p.numel() for p in vae.parameters())
@@ -452,7 +457,7 @@ def main():
         )
 
         _, ids, _ = vae.encode(
-            dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+            dataset[image_id][None].to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
         )
         recon = vae.decode_from_ids(ids)
         save_image(recon, f"{args.results_dir}/outputs/output.{str(args.input_image).split('.')[-1]}")
@@ -465,7 +470,7 @@ def main():
         save_image(dataset[image_id], f"{args.results_dir}/outputs/input.png")
 
         _, ids, _ = vae.encode(
-            dataset[image_id][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+            dataset[image_id][None].to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
         )
         recon = vae.decode_from_ids(ids)
         save_image(recon, f"{args.results_dir}/outputs/output.png")
@@ -484,7 +489,7 @@ def main():
                     if not args.use_paintmind:
                         # encode
                         _, ids, _ = vae.encode(
-                            dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+                            dataset[i][None].to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
                         )
                         # decode
                         recon = vae.decode_from_ids(ids)
@@ -493,7 +498,7 @@ def main():
                     else:
                         # encode
                         encoded, _, _ = vae.encode(
-                            dataset[i][None].to(accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+                            dataset[i][None].to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
                         )
 
                         # decode
