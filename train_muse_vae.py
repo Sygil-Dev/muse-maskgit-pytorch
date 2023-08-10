@@ -285,8 +285,11 @@ parser.add_argument(
 parser.add_argument(
     "--optimizer",
     type=str,
-    default="Lion",
-    help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion']. Default: Lion",
+    default="Adam",
+    help="Optimizer to use. Choose between: ['Adam', 'AdamW','Lion', 'Adafactor', "
+    "'AdaBound', 'AdaMod', 'AccSGD', 'AdamP', 'AggMo', 'DiffGrad', 'Lamb', "
+    "'NovoGrad', 'PID', 'QHAdam', 'QHM', 'RAdam', 'SGDP', 'SGDW', 'Shampoo', "
+    "'SWATS', 'Yogi']. Default: Adam",
 )
 parser.add_argument(
     "--cache_path",
@@ -320,6 +323,24 @@ parser.add_argument(
 @dataclass
 class Arguments:
     total_params: Optional[int] = None
+    image_size: int = 256
+    num_train_steps: int = -1
+    num_epochs: int = 5
+    batch_size: int = 512
+    lr: float = 1e-5
+    lr_warmup_steps: int = 0
+    lr_scheduler: str = "constant"
+    gradient_accumulation_steps: int = 1
+    save_results_every: int = 100
+    save_model_every: int = 500
+    dim: int = 128
+    vq_codebook_size: int = 256
+    vq_codebook_dim: int = 256
+    num_tokens: int = 256
+    seq_len: int = 1024
+    channels: int = 3
+    scheduler_power: float = 1.0
+    num_cycles: int = 1
     only_save_last_checkpoint: bool = False
     validation_image_scale: float = 1.0
     no_center_crop: bool = False
@@ -329,8 +350,6 @@ class Arguments:
     clear_previous_experiments: bool = False
     max_grad_norm: Optional[float] = None
     discr_max_grad_norm: Optional[float] = None
-    num_tokens: int = 256
-    seq_len: int = 1024
     seed: int = 42
     valid_frac: float = 0.05
     use_ema: bool = False
@@ -349,23 +368,8 @@ class Arguments:
     dataset_name: Optional[str] = None
     streaming: bool = False
     train_data_dir: Optional[str] = None
-    num_train_steps: int = -1
-    num_epochs: int = 5
-    dim: int = 128
-    batch_size: int = 512
-    lr: float = 1e-5
-    gradient_accumulation_steps: int = 1
-    save_results_every: int = 100
-    save_model_every: int = 500
     checkpoint_limit: Union[int, str] = None
-    vq_codebook_size: int = 256
-    vq_codebook_dim: int = 256
     cond_drop_prob: float = 0.5
-    image_size: int = 256
-    lr_scheduler: str = "constant"
-    scheduler_power: float = 1.0
-    lr_warmup_steps: int = 0
-    num_cycles: int = 1
     taming_model_path: Optional[str] = None
     taming_config_path: Optional[str] = None
     optimizer: str = "Lion"
@@ -539,6 +543,8 @@ def main():
         )
         args.num_tokens = vae.codebook_size
         args.seq_len = vae.get_encoded_fmap_size(args.image_size) ** 2
+
+        current_step = 0
     else:
         print("Initialising empty VAE")
         vae = VQGanVAE(
