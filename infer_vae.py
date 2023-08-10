@@ -1,9 +1,5 @@
-import argparse
-import glob
-import hashlib
-import os
-import random
-import re
+import argparse, glob, hashlib
+import os, random, re, shutil
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -204,6 +200,11 @@ parser.add_argument(
     "--use_paintmind",
     action="store_true",
     help="Use PaintMind VAE..",
+)
+parser.add_argument(
+    "--save_originals",
+    action="store_true",
+    help="Save the original input.png and output.png images to a subfolder instead of deleting them after the grid is made.",
 )
 
 
@@ -525,9 +526,15 @@ def main():
                     filename = f"{hash}_{now}-{os.path.basename(args.vae_path)}.png"
                     grid_image.save(f"{output_dir}/{filename}", format="PNG")
 
-                    # Remove input and output images after the grid was made.
-                    os.remove(f"{output_dir}/input.png")
-                    os.remove(f"{output_dir}/output.png")
+                    if not args.save_originals:
+                        # Remove input and output images after the grid was made.
+                        os.remove(f"{output_dir}/input.png")
+                        os.remove(f"{output_dir}/output.png")
+                    else:
+                        os.makedirs(os.path.join(output_dir, 'originals'), exist_ok=True)
+                        shutil.move(f"{output_dir}/input.png", f"{os.path.join(output_dir, 'originals')}/input_{now}.png")
+                        shutil.move(f"{output_dir}/output.png", f"{os.path.join(output_dir, 'originals')}/output_{now}.png")
+
 
                     del _
                     del ids
