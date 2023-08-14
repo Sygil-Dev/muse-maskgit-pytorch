@@ -222,6 +222,9 @@ class Arguments:
     discr_max_grad_norm: Optional[float] = None
     num_tokens: int = 256
     seq_len: int = 1024
+    channels: int = 3
+    layers: int = 4
+    discr_layers: int = 4
     seed: int = 42
     valid_frac: float = 0.05
     use_ema: bool = False
