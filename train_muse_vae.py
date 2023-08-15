@@ -339,6 +339,8 @@ class Arguments:
     num_tokens: int = 256
     seq_len: int = 1024
     channels: int = 3
+    layers: int = 4
+    discr_layers: int = 4
     scheduler_power: float = 1.0
     num_cycles: int = 1
     only_save_last_checkpoint: bool = False
