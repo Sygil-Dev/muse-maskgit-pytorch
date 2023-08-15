@@ -1,17 +1,22 @@
-from torchvision.utils import save_image
-import os, glob, re, torch, warnings
-from datetime import datetime
 import argparse
+import glob
+import os
+import re
+import warnings
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
+
+import torch
+from torchvision.utils import save_image
 from tqdm import tqdm
 
 from muse_maskgit_pytorch import (
-    VQGanVAE,
-    VQGanVAETaming,
-    #MaskGitTrainer,
+    # MaskGitTrainer,
     MaskGit,
     MaskGitTransformer,
+    VQGanVAE,
+    VQGanVAETaming,
     get_accelerator,
 )
 
@@ -46,19 +51,11 @@ parser.add_argument(
     help="The sequence length. Must be equivalent to fmap_size ** 2 in vae",
 )
 parser.add_argument("--depth", type=int, default=2, help="The depth of model")
-parser.add_argument(
-    "--dim_head", type=int, default=64, help="Attention head dimension"
-)
+parser.add_argument("--dim_head", type=int, default=64, help="Attention head dimension")
 parser.add_argument("--heads", type=int, default=8, help="Attention heads")
-parser.add_argument(
-    "--ff_mult", type=int, default=4, help="Feed forward expansion factor"
-)
-parser.add_argument(
-    "--t5_name", type=str, default="t5-large", help="Name of your t5 model"
-)
-parser.add_argument(
-    "--cond_image_size", type=int, default=None, help="Conditional image size."
-)
+parser.add_argument("--ff_mult", type=int, default=4, help="Feed forward expansion factor")
+parser.add_argument("--t5_name", type=str, default="t5-large", help="Name of your t5 model")
+parser.add_argument("--cond_image_size", type=int, default=None, help="Conditional image size.")
 parser.add_argument(
     "--prompt",
     type=str,
@@ -66,29 +63,18 @@ parser.add_argument(
     help="Prompt to use for generation, you can use multiple prompts separated by |.",
 )
 parser.add_argument(
-    "--timesteps",
-    type=int,
-    default=18,
-    help="Number of steps to use for generating the image. Default: 18"
+    "--timesteps", type=int, default=18, help="Number of steps to use for generating the image. Default: 18"
 )
 parser.add_argument(
     "--cond_scale",
     type=float,
     default=3.0,
-    help="Conditional Scale to use for generating the image. Default: 3.0"
+    help="Conditional Scale to use for generating the image. Default: 3.0",
 )
-parser.add_argument(
-    "--num_images",
-    type=int,
-    default=1,
-    help="Number of images to generate. Default: 1")
-parser.add_argument(
-    "--max_grad_norm", type=float, default=None, help="Max gradient norm."
-)
+parser.add_argument("--num_images", type=int, default=1, help="Number of images to generate. Default: 1")
+parser.add_argument("--max_grad_norm", type=float, default=None, help="Max gradient norm.")
 parser.add_argument("--seed", type=int, default=42, help="Seed.")
-parser.add_argument(
-    "--valid_frac", type=float, default=0.05, help="validation fraction."
-)
+parser.add_argument("--valid_frac", type=float, default=0.05, help="validation fraction.")
 parser.add_argument("--use_ema", action="store_true", help="Whether to use ema.")
 parser.add_argument("--ema_beta", type=float, default=0.995, help="Ema beta.")
 parser.add_argument(
@@ -163,6 +149,7 @@ parser.add_argument(
     action="store_true",
     help="Automatically find and use the latest checkpoint in the folder.",
 )
+
 
 @dataclass
 class Arguments:
@@ -275,7 +262,7 @@ def main():
                 channels=args.channels,
                 layers=args.layers,
                 discr_layers=args.discr_layers,
-            ).to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+            ).to("cpu" if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
             vae.load(args.vae_path)
 
@@ -299,17 +286,17 @@ def main():
     # then you plug the vae and transformer into your MaskGit like so:
 
     ## (1) create your transformer / attention network
-    #if args.attention_type == "flash":
-        #xformers = False
-        #flash = True
-    #elif args.attention_type == "xformers":
-        #xformers = True
-        #flash = True
-    #elif args.attention_type == "ein":
-        #xformers = False
-        #flash = False
-    #else:
-        #raise NotImplementedError(f'Attention of type "{args.attention_type}" does not exist')
+    # if args.attention_type == "flash":
+    # xformers = False
+    # flash = True
+    # elif args.attention_type == "xformers":
+    # xformers = True
+    # flash = True
+    # elif args.attention_type == "ein":
+    # xformers = False
+    # flash = False
+    # else:
+    # raise NotImplementedError(f'Attention of type "{args.attention_type}" does not exist')
 
     transformer: MaskGitTransformer = MaskGitTransformer(
         # num_tokens must be same as codebook size above
@@ -324,9 +311,9 @@ def main():
         ff_mult=args.ff_mult,
         # name of your T5 model configuration
         t5_name=args.t5_name,
-        #cache_path=args.cache_path,
-        #flash=flash,
-        #xformers=xformers,
+        # cache_path=args.cache_path,
+        # flash=flash,
+        # xformers=xformers,
     )
 
     # (2) pass your trained VAE and the base transformer to MaskGit
@@ -339,7 +326,7 @@ def main():
         cond_image_size=args.cond_image_size,
     )
 
-    maskgit.to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
+    maskgit.to("cpu" if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
     # load the maskgit transformer from disk if we have previously trained one
     if args.resume_path is not None and len(args.resume_path) > 1:
@@ -390,18 +377,14 @@ def main():
                                 checkpoint_files[:-1],
                                 key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
                             )
-                        accelerator.print(
-                            "Using second last MaskGit checkpoint: ", latest_checkpoint_file
-                        )
+                        accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
                     else:
                         accelerator.print("No usable MaskGit checkpoint found.")
                         load = False
                 elif latest_checkpoint_file != orig_vae_path:
                     accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
                 else:
-                    accelerator.print(
-                        "Using MaskGit checkpoint specified in resume_path: ", orig_vae_path
-                    )
+                    accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
 
                 args.resume_path = latest_checkpoint_file
             else:
@@ -424,7 +407,9 @@ def main():
         else:
             current_step = 0
     else:
-        accelerator.print("We need a MaskGit model to do inference with. Please provide a path to a checkpoint..")
+        accelerator.print(
+            "We need a MaskGit model to do inference with. Please provide a path to a checkpoint.."
+        )
 
     # Use the parameters() method to get an iterator over all the learnable parameters of the model
     total_params = sum(p.numel() for p in maskgit.parameters())
@@ -432,30 +417,31 @@ def main():
 
     print(f"Total number of parameters: {format(total_params, ',d')}")
 
-    texts=[args.prompt] if '|' not in args.prompt else str(args.prompt).split("|")
-    print (f"Prompt: {texts}")
+    texts = [args.prompt] if "|" not in args.prompt else str(args.prompt).split("|")
+    print(f"Prompt: {texts}")
 
     for i in tqdm(range(args.num_images), total=args.num_images):
         # ready your training text and images
         images = maskgit.generate(
             texts=texts,
-            cond_scale = args.cond_scale, # conditioning scale for classifier free guidance
-            timesteps = args.timesteps,
-            )
+            cond_scale=args.cond_scale,  # conditioning scale for classifier free guidance
+            timesteps=args.timesteps,
+        )
 
-        #print(images.shape) # (3, 3, 256, 256)
+        # print(images.shape) # (3, 3, 256, 256)
 
         now = datetime.now().strftime("%m-%d-%Y_%H-%M-%S.%f")
 
         # save image to disk
         save_path = str(f"{args.results_dir}/outputs/validation/maskgit/{now}.png")
-        os.makedirs(str(f"{args.results_dir}/outputs/validation/maskgit/"), exist_ok = True)
+        os.makedirs(str(f"{args.results_dir}/outputs/validation/maskgit/"), exist_ok=True)
 
         save_image(images, save_path)
 
         del images
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
+
 
 if __name__ == "__main__":
     main()
