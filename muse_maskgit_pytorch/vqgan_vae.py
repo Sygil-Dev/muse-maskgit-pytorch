@@ -94,6 +94,8 @@ def log(t, eps=1e-10):
 
 
 def gradient_penalty(images, output, weight=10):
+    batch_size = images.shape[0]
+
     gradients = torch_grad(
         outputs=output,
         inputs=images,
@@ -476,7 +478,7 @@ class VQGanVAE(nn.Module):
         return_discr_loss=False,
         return_recons=False,
         add_gradient_penalty=True,
-        relu_loss=True,
+        relu_loss=False,
     ):
         batch, channels, height, width, device = *img.shape, img.device
 

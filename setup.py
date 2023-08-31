@@ -48,6 +48,7 @@ setup(
         "lion-pytorch",
         "omegaconf",
         "xformers>=0.0.20",
+        "wandb",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

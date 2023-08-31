@@ -2,7 +2,6 @@ import argparse
 import glob
 import os
 import re
-import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -126,6 +125,12 @@ parser.add_argument(
     help="Image size. You may want to start with small images, and then curriculum learn to larger ones, but because the vae is all convolution, it should generalize to 512 (as in paper) without training on it",
 )
 parser.add_argument(
+    "--validation_image_scale",
+    default=1,
+    type=float,
+    help="Factor by which to scale the validation images.",
+)
+parser.add_argument(
     "--resume_path",
     type=str,
     default=None,
@@ -153,6 +158,7 @@ parser.add_argument(
 
 @dataclass
 class Arguments:
+    validation_image_scale: float = 1.0
     clear_previous_experiments: bool = False
     max_grad_norm: Optional[float] = None
     discr_max_grad_norm: Optional[float] = None
@@ -424,8 +430,15 @@ def main():
         # ready your training text and images
         images = maskgit.generate(
             texts=texts,
+            # cond_images=F.interpolate(torch.randn(1, 3, 512, 512).to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"), 256),
             cond_scale=args.cond_scale,  # conditioning scale for classifier free guidance
             timesteps=args.timesteps,
+            # fmap_size=None,
+            # temperature=1.0,
+            # topk_filter_thres=0.9,
+            # can_remask_prev_masked=False,
+            # force_not_use_token_critic=False,
+            # critic_noise_scale=1,
         )
 
         # print(images.shape) # (3, 3, 256, 256)

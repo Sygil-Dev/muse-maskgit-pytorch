@@ -584,7 +584,7 @@ def main():
 
                     else:
                         if "out of memory" not in str(e):
-                            print(e)
+                            print(f"\n{e}")
                         else:
                             print(f"Skipping image {i} after {retries} retries due to out of memory error")
                         break  # Exit the retry loop after too many retries

@@ -336,7 +336,6 @@ class Arguments:
     dim: int = 128
     vq_codebook_size: int = 256
     vq_codebook_dim: int = 256
-    num_tokens: int = 256
     seq_len: int = 1024
     channels: int = 3
     layers: int = 4
