@@ -1,6 +1,3 @@
-from torchvision.utils import save_image
-import os, glob, re, torch
-from datetime import datetime
 import argparse
 import glob
 import os
@@ -433,16 +430,16 @@ def main():
         # ready your training text and images
         images = maskgit.generate(
             texts=texts,
-            #cond_images=F.interpolate(torch.randn(1, 3, 512, 512).to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"), 256),
-            cond_scale = args.cond_scale, # conditioning scale for classifier free guidance
-            timesteps = args.timesteps,
-            #fmap_size=None,
-            #temperature=1.0,
-            #topk_filter_thres=0.9,
-            #can_remask_prev_masked=False,
-            #force_not_use_token_critic=False,
-            #critic_noise_scale=1,
-            )
+            # cond_images=F.interpolate(torch.randn(1, 3, 512, 512).to('cpu' if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}"), 256),
+            cond_scale=args.cond_scale,  # conditioning scale for classifier free guidance
+            timesteps=args.timesteps,
+            # fmap_size=None,
+            # temperature=1.0,
+            # topk_filter_thres=0.9,
+            # can_remask_prev_masked=False,
+            # force_not_use_token_critic=False,
+            # critic_noise_scale=1,
+        )
 
         # print(images.shape) # (3, 3, 256, 256)
 

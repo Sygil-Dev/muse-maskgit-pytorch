@@ -553,7 +553,7 @@ class MaskGit(nn.Module):
                 reversed(range(timesteps)),
             ),
             total=timesteps,
-            dynamic_ncols=True
+            dynamic_ncols=True,
         ):
             rand_mask_prob = self.noise_schedule(timestep)
             num_token_masked = max(int((rand_mask_prob * seq_len).item()), 1)

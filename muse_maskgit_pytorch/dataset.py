@@ -85,13 +85,17 @@ class ImageDataset(Dataset):
                 return self.transform(image)
         except TypeError:
             try:
-                image = pImage.open(BytesIO(requests.get(self.dataset[index][self.image_column], timeout=30).content))
+                image = pImage.open(
+                    BytesIO(requests.get(self.dataset[index][self.image_column], timeout=30).content)
+                )
             except ConnectionError:
                 try:
                     print("Image request failure, attempting next image")
                     index += 1
 
-                    image = pImage.open(BytesIO(requests.get(self.dataset[index][self.image_column], timeout=30).content))
+                    image = pImage.open(
+                        BytesIO(requests.get(self.dataset[index][self.image_column], timeout=30).content)
+                    )
                 except ConnectionError:
                     raise ConnectionError("Unable to request image from the Dataset")
 
