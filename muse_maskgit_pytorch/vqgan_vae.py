@@ -92,8 +92,9 @@ def groupby_prefix_and_trim(prefix, d):
 def log(t, eps=1e-10):
     return torch.log(t + eps)
 
+def gradient_penalty(images, output, weight = 10):
+    batch_size = images.shape[0]
 
-def gradient_penalty(images, output, weight=10):
     gradients = torch_grad(
         outputs=output,
         inputs=images,
@@ -163,24 +164,22 @@ class Discriminator(nn.Module):
         self.layers = MList(
             [
                 nn.Sequential(
-                    nn.Conv2d(channels, dims[0], init_kernel_size, padding=init_kernel_size // 2),
+                    nn.Conv2d(channels, dims[0], init_kernel_size, padding = init_kernel_size // 2),
                     leaky_relu(),
                 )
             ]
         )
 
         for dim_in, dim_out in dim_pairs:
-            self.layers.append(
-                nn.Sequential(
-                    nn.Conv2d(dim_in, dim_out, 4, stride=2, padding=1),
-                    nn.GroupNorm(groups, dim_out),
-                    leaky_relu(),
-                )
-            )
+            self.layers.append(nn.Sequential(
+                nn.Conv2d(dim_in, dim_out, 4, stride = 2, padding = 1),
+                nn.GroupNorm(groups, dim_out),
+                leaky_relu(),
+            ))
 
         dim = dims[-1]
         # return 5 x 5, for PatchGAN-esque training
-        self.to_logits = nn.Sequential(nn.Conv2d(dim, dim, 1), leaky_relu(), nn.Conv2d(dim, 1, 4))
+        self.to_logits = nn.Sequential(nn.Conv2d(dim, dim, 1),leaky_relu(),nn.Conv2d(dim, 1, 4))
 
     def forward(self, x):
         for net in self.layers:
@@ -476,7 +475,7 @@ class VQGanVAE(nn.Module):
         return_discr_loss=False,
         return_recons=False,
         add_gradient_penalty=True,
-        relu_loss=True,
+        relu_loss=False,
     ):
         batch, channels, height, width, device = *img.shape, img.device
 
