@@ -590,10 +590,10 @@ def main():
     # Load the VAE
     with accelerator.main_process_first():
         if args.vae_path:
-            print("Loading Muse VQGanVAE")
+            accelerator.print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                print("Finding latest VAE checkpoint...")
+                accelerator.print("Finding latest VAE checkpoint...")
                 orig_vae_path = args.vae_path
 
                 if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
@@ -610,7 +610,7 @@ def main():
                     if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
                         latest_checkpoint_file, os.R_OK
                     ):
-                        print(
+                        accelerator.print(
                             f"Warning: latest VAE checkpoint {latest_checkpoint_file} is empty or unreadable."
                         )
                         if len(checkpoint_files) > 1:
@@ -619,19 +619,19 @@ def main():
                                 checkpoint_files[:-1],
                                 key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1)),
                             )
-                            print("Using second last VAE checkpoint: ", latest_checkpoint_file)
+                            accelerator.print("Using second last VAE checkpoint: ", latest_checkpoint_file)
                         else:
-                            print("No usable checkpoint found.")
+                            accelerator.print("No usable checkpoint found.")
                     elif latest_checkpoint_file != orig_vae_path:
-                        print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
+                        accelerator.print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
                     else:
-                        print("Using VAE checkpoint specified in vae_path: ", orig_vae_path)
+                        accelerator.print("Using VAE checkpoint specified in vae_path: ", orig_vae_path)
 
                     args.vae_path = latest_checkpoint_file
                 else:
-                    print("No VAE checkpoints found in directory: ", args.vae_path)
+                    accelerator.print("No VAE checkpoints found in directory: ", args.vae_path)
             else:
-                print("Resuming VAE from: ", args.vae_path)
+                accelerator.print("Resuming VAE from: ", args.vae_path)
 
             # use config next to checkpoint if there is one and merge the cli arguments to it
             # the cli arguments will take priority so we can use it to override any value we want.
@@ -654,7 +654,7 @@ def main():
             vae.load(args.vae_path)
 
         elif args.taming_model_path is not None and args.taming_config_path is not None:
-            print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
+            accelerator.print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
             vae = VQGanVAETaming(
                 vqgan_model_path=args.taming_model_path,
                 vqgan_config_path=args.taming_config_path,
@@ -804,7 +804,7 @@ def main():
     total_params = sum(p.numel() for p in maskgit.parameters())
     args.total_params = total_params
 
-    print(f"Total number of parameters: {format(total_params, ',d')}")
+    accelerator.print(f"Total number of parameters: {format(total_params, ',d')}")
 
     # Create the dataset objects
     with accelerator.main_process_first():
@@ -893,7 +893,7 @@ def main():
         is_local_main = accelerator.is_local_main_process
 
         with accelerator.local_main_process_first():
-            print(
+            accelerator.print(
                 f"[P{proc_idx:03d}]: PID {proc_idx}/{n_procs}, local #{local_proc_idx}, ",
                 f"XLA ord={xm_ord}/{xm_world}, local={xm_local_ord}, master={xm_master_ord} ",
                 f"Accelerate: main={is_main}, local main={is_local_main} ",
