@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Thread
 
 import datasets
+import PIL
 import torch
 from datasets import Image, load_from_disk
 from PIL import (
@@ -133,8 +134,21 @@ class ImageTextDataset(ImageDataset):
         self.tokenizer: T5Tokenizer = tokenizer
 
     def __getitem__(self, index):
-        image = self.dataset[index][self.image_column]
-        descriptions = self.dataset[index][self.caption_column]
+        try:
+            image = self.dataset[index][self.image_column]
+            descriptions = self.dataset[index][self.caption_column]
+        except PIL.UnidentifiedImageError:
+            print("Error reading image, most likely corrupt, skipping...")
+            image_found = False
+            current_index = 1
+            while not image_found:
+                try:
+                    image = self.dataset[index + current_index][self.image_column]
+                    descriptions = self.dataset[index + current_index][self.caption_column]
+                    image_found = True
+                except PIL.UnidentifiedImageError:
+                    current_index += 1
+
         if self.caption_column is None or descriptions is None:
             text = ""
         elif isinstance(descriptions, list):
