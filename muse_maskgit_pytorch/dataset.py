@@ -136,10 +136,19 @@ class ImageTextDataset(ImageDataset):
     def __getitem__(self, index):
         try:
             image = self.dataset[index][self.image_column]
+            descriptions = self.dataset[index][self.caption_column]
         except PIL.UnidentifiedImageError:
             print("Error reading image, most likely corrupt, skipping...")
-            image = self.dataset[index + 1][self.image_column]
-        descriptions = self.dataset[index][self.caption_column]
+            image_found = False
+            current_index = 1
+            while not image_found:
+                try:
+                    image = self.dataset[index + current_index][self.image_column]
+                    descriptions = self.dataset[index + current_index][self.caption_column]
+                    image_found = True
+                except PIL.UnidentifiedImageError:
+                    current_index += 1
+
         if self.caption_column is None or descriptions is None:
             text = ""
         elif isinstance(descriptions, list):
