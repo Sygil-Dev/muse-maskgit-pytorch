@@ -392,7 +392,7 @@ def main():
     args = parser.parse_args(namespace=Arguments())
 
     if args.config_path:
-        print("Using config file and ignoring CLI args")
+        accelerator.print("Using config file and ignoring CLI args")
 
         try:
             conf = OmegaConf.load(args.config_path)
@@ -403,10 +403,10 @@ def main():
                 try:
                     args_to_convert[key] = conf[key]
                 except KeyError:
-                    print(f"Error parsing config - {key}: {conf[key]} | Using default or parsed")
+                    accelerator.print(f"Error parsing config - {key}: {conf[key]} | Using default or parsed")
 
         except FileNotFoundError:
-            print("Could not find config, using default and parsed values...")
+            accelerator.print("Could not find config, using default and parsed values...")
 
     project_config = ProjectConfiguration(
         project_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
@@ -457,7 +457,7 @@ def main():
             ]
         if args.streaming:
             if dataset.info.dataset_size is None:
-                print("Dataset doesn't support streaming, disabling streaming")
+                accelerator.print("Dataset doesn't support streaming, disabling streaming")
                 args.streaming = False
                 if args.cache_path:
                     dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[args.hf_split_name]
@@ -536,7 +536,7 @@ def main():
             current_step = 0
 
     elif args.taming_model_path is not None and args.taming_config_path is not None:
-        print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
+        accelerator.print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
         vae = VQGanVAETaming(
             vqgan_model_path=args.taming_model_path,
             vqgan_config_path=args.taming_config_path,
@@ -547,7 +547,7 @@ def main():
 
         current_step = 0
     else:
-        print("Initialising empty VAE")
+        accelerator.print("Initialising empty VAE")
         vae = VQGanVAE(
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
@@ -564,7 +564,7 @@ def main():
     total_params = sum(p.numel() for p in vae.parameters())
     args.total_params = total_params
 
-    print(f"Total number of parameters: {format(total_params, ',d')}")
+    accelerator.print(f"Total number of parameters: {format(total_params, ',d')}")
 
     dataset = ImageDataset(
         dataset,
