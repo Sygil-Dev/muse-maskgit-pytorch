@@ -446,7 +446,7 @@ def main():
         now = datetime.now().strftime("%m-%d-%Y_%H-%M-%S.%f")
 
         # save image to disk
-        save_path = str(f"{args.results_dir}/outputs/validation/maskgit/{now}.png")
+        save_path = str(f"{args.results_dir}/outputs/validation/maskgit/{now}-{current_step}.png")
         os.makedirs(str(f"{args.results_dir}/outputs/validation/maskgit/"), exist_ok=True)
 
         save_image(images, save_path)
