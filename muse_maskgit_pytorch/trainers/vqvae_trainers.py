@@ -201,7 +201,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
         recons = self.model(valid_data, return_recons=True)
         if self.use_ema:
-            ema_recons =  self.ema_model(valid_data, return_recons=True)
+            ema_recons = self.ema_model(valid_data, return_recons=True)
 
         # else save a grid of images
 
