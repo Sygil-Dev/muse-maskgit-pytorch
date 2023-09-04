@@ -185,6 +185,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
     def log_validation_images(self, logs, steps):
         log_imgs = []
+        prompts = []
         self.model.eval()
 
         try:
@@ -199,17 +200,25 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
         # else save a grid of images
 
-        imgs_and_recons = torch.stack((valid_data, recons), dim=0)
-        imgs_and_recons = rearrange(imgs_and_recons, "r b ... -> (b r) ...")
+        for i in range(valid_data.shape[0]):
 
-        imgs_and_recons = imgs_and_recons.detach().cpu().float().clamp(0.0, 1.0)
-        grid = make_grid(imgs_and_recons, nrow=2, normalize=True, value_range=(0, 1))
+            # Get sample and reconstruction
+            sample = valid_data[i]
+            recon = recons[i]
 
-        logs["reconstructions"] = grid
-        save_file = str(self.results_dir / f"{steps}.png")
-        save_image(grid, save_file)
-        log_imgs.append(Image.open(save_file))
-        super().log_validation_images(log_imgs, steps, prompts=["vae"])
+            # Create grid for this sample
+            grid = make_grid([sample, recon], nrow=2)
+
+            # Save grid
+            grid_file = f"{steps}_{i}.png"
+            save_path = self.results_dir / grid_file
+            save_image(grid, str(save_path))
+
+            # Log each saved grid image
+            log_imgs.append(Image.open(save_path))
+            prompts.append("vae")
+
+            super().log_validation_images(log_imgs, steps, prompts=prompts)
         self.model.train()
 
     def train(self):
