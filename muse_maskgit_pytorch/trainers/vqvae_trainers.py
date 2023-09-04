@@ -201,7 +201,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         # else save a grid of images
 
         for i in range(valid_data.shape[0]):
-
             # Get sample and reconstruction
             sample = valid_data[i]
             recon = recons[i]
