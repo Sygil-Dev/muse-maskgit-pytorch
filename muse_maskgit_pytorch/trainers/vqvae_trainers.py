@@ -186,7 +186,10 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
     def log_validation_images(self, logs, steps):
         log_imgs = []
         prompts = []
+
         self.model.eval()
+        if self.use_ema:
+            self.ema_model.eval()
 
         try:
             valid_data = next(self.valid_dl_iter)
@@ -197,6 +200,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         valid_data = valid_data.to(self.device)
 
         recons = self.model(valid_data, return_recons=True)
+        if self.use_ema:
+            ema_recons = self.ema_model(valid_data, return_recons=True)
 
         # else save a grid of images
 
@@ -204,18 +209,32 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             # Get sample and reconstruction
             sample = valid_data[i]
             recon = recons[i]
+            if self.use_ema:
+                ema_recon = ema_recons[i]
 
             # Create grid for this sample
             grid = make_grid([sample, recon], nrow=2)
+            if self.use_ema:
+                ema_grid = make_grid([sample, ema_recon], nrow=2)
 
             # Save grid
             grid_file = f"{steps}_{i}.png"
+            if self.use_ema:
+                ema_grid_file = f"{steps}_{i}.ema.png"
+
             save_path = self.results_dir / grid_file
             save_image(grid, str(save_path))
+
+            if self.use_ema:
+                ema_save_path = self.results_dir / ema_grid_file
+                save_image(ema_grid, str(ema_save_path))
 
             # Log each saved grid image
             log_imgs.append(Image.open(save_path))
             prompts.append("vae")
+            if self.use_ema:
+                log_imgs.append(Image.open(ema_save_path))
+                prompts.append("ema")
 
             super().log_validation_images(log_imgs, steps, prompts=prompts)
         self.model.train()
