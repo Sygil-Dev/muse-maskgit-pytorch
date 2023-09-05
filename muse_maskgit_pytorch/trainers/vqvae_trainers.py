@@ -55,6 +55,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         lr_warmup_steps=500,
         discr_max_grad_norm=None,
         use_ema=True,
+        ema_vae=None,
         ema_beta=0.995,
         ema_update_after_step=0,
         ema_update_every=1,
@@ -155,6 +156,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         if use_ema:
             self.ema_model = EMA(
                 vae,
+                ema_model=ema_vae,
                 update_after_step=ema_update_after_step,
                 update_every=ema_update_every,
             )
