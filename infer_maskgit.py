@@ -1,7 +1,5 @@
 import argparse
-import glob
 import os
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -17,6 +15,9 @@ from muse_maskgit_pytorch import (
     VQGanVAE,
     VQGanVAETaming,
     get_accelerator,
+)
+from muse_maskgit_pytorch.utils import (
+    get_latest_checkpoints,
 )
 
 # Create the parser
@@ -211,43 +212,10 @@ def main():
             print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                print("Finding latest VAE checkpoint...")
-                orig_vae_path = args.vae_path
-
-                if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
-                    # If args.vae_path is a file, split it into directory and filename
-                    args.vae_path, _ = os.path.split(args.vae_path)
-
-                checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
-                if checkpoint_files:
-                    latest_checkpoint_file = max(
-                        checkpoint_files, key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
-                    )
-
-                    # Check if latest checkpoint is empty or unreadable
-                    if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
-                        latest_checkpoint_file, os.R_OK
-                    ):
-                        print(
-                            f"Warning: latest VAE checkpoint {latest_checkpoint_file} is empty or unreadable."
-                        )
-                        if len(checkpoint_files) > 1:
-                            # Use the second last checkpoint as a fallback
-                            latest_checkpoint_file = max(
-                                checkpoint_files[:-1],
-                                key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1)),
-                            )
-                            print("Using second last VAE checkpoint: ", latest_checkpoint_file)
-                        else:
-                            print("No usable checkpoint found.")
-                    elif latest_checkpoint_file != orig_vae_path:
-                        print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
-                    else:
-                        print("Using VAE checkpoint specified in vae_path: ", orig_vae_path)
-
-                    args.vae_path = latest_checkpoint_file
-                else:
-                    print("No VAE checkpoints found in directory: ", args.vae_path)
+                args.vae_path, ema_model_path = get_latest_checkpoints(args.vae_path, use_ema=args.use_ema, model_type="vae")
+                print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
+                #if args.use_ema:
+                #    print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
             else:
                 print("Resuming VAE from: ", args.vae_path)
 
@@ -341,61 +309,10 @@ def main():
         accelerator.print("Loading Muse MaskGit...")
 
         if args.latest_checkpoint:
-            accelerator.print("Finding latest MaskGit checkpoint...")
-            orig_vae_path = args.resume_path
-
-            if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
-                # If args.resume_path is a file, split it into directory and filename
-                args.resume_path, _ = os.path.split(args.resume_path)
-
-            if args.cond_image_size:
-                checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit_superres.*.pt"))
-            else:
-                checkpoint_files = glob.glob(os.path.join(args.resume_path, "maskgit.*.pt"))
-
-            if checkpoint_files:
-                if args.cond_image_size:
-                    latest_checkpoint_file = max(
-                        checkpoint_files,
-                        key=lambda x: int(re.search(r"maskgit_superres\.(\d+)\.pt", x).group(1)),
-                    )
-                else:
-                    latest_checkpoint_file = max(
-                        checkpoint_files, key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1))
-                    )
-
-                # Check if latest checkpoint is empty or unreadable
-                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
-                    latest_checkpoint_file, os.R_OK
-                ):
-                    accelerator.print(
-                        f"Warning: latest MaskGit checkpoint {latest_checkpoint_file} is empty or unreadable."
-                    )
-                    if len(checkpoint_files) > 1:
-                        # Use the second last checkpoint as a fallback
-                        if args.cond_image_size:
-                            latest_checkpoint_file = max(
-                                checkpoint_files[:-1],
-                                key=lambda x: int(re.search(r"maskgit_superres\.(\d+)\.pt", x).group(1)),
-                            )
-                        else:
-                            latest_checkpoint_file = max(
-                                checkpoint_files[:-1],
-                                key=lambda x: int(re.search(r"maskgit\.(\d+)\.pt", x).group(1)),
-                            )
-                        accelerator.print("Using second last MaskGit checkpoint: ", latest_checkpoint_file)
-                    else:
-                        accelerator.print("No usable MaskGit checkpoint found.")
-                        load = False
-                elif latest_checkpoint_file != orig_vae_path:
-                    accelerator.print("Resuming MaskGit from latest checkpoint: ", latest_checkpoint_file)
-                else:
-                    accelerator.print("Using MaskGit checkpoint specified in resume_path: ", orig_vae_path)
-
-                args.resume_path = latest_checkpoint_file
-            else:
-                accelerator.print("No MaskGit checkpoints found in directory: ", args.resume_path)
-                load = False
+            args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="maskgit", cond_image_size=args.cond_image_size)
+            print(f"Resuming MaskGit from latest checkpoint: {args.resume_path}")
+            #if args.use_ema:
+            #    print(f"Resuming EMA MaskGit from latest checkpoint: {ema_model_path}")
         else:
             accelerator.print("Resuming MaskGit from: ", args.resume_path)
 
