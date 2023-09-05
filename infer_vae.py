@@ -26,6 +26,10 @@ from muse_maskgit_pytorch.dataset import (
     ImageDataset,
     get_dataset_from_dataroot,
 )
+from muse_maskgit_pytorch.utils import (
+    get_latest_checkpoints,
+)
+
 from muse_maskgit_pytorch.vqvae import VQVAE
 
 # Create the parser
@@ -211,6 +215,8 @@ parser.add_argument(
     action="store_true",
     help="Save the original input.png and output.png images to a subfolder instead of deleting them after the grid is made.",
 )
+parser.add_argument("--use_ema", action="store_true", help="Whether to use ema.")
+parser.add_argument("--ema_beta", type=float, default=0.995, help="Ema beta.")
 
 
 @dataclass
@@ -373,52 +379,14 @@ def main():
         ).to("cpu" if args.cpu else accelerator.device if args.gpu == 0 else f"cuda:{args.gpu}")
 
         if args.latest_checkpoint:
-            accelerator.print("Finding latest checkpoint...")
-            orig_vae_path = args.vae_path
-
-            if os.path.isfile(args.vae_path) or ".pt" in args.vae_path:
-                # If args.vae_path is a file, split it into directory and filename
-                args.vae_path, _ = os.path.split(args.vae_path)
-
-            checkpoint_files = glob.glob(os.path.join(args.vae_path, "vae.*.pt"))
-            if checkpoint_files:
-                latest_checkpoint_file = max(
-                    checkpoint_files,
-                    key=lambda x: int(re.search(r"vae\.(\d+)\.pt$", x).group(1))
-                    if not x.endswith("ema.pt")
-                    else -1,
-                )
-
-                # Check if latest checkpoint is empty or unreadable
-                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
-                    latest_checkpoint_file, os.R_OK
-                ):
-                    accelerator.print(
-                        f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
-                    )
-                    if len(checkpoint_files) > 1:
-                        # Use the second last checkpoint as a fallback
-                        latest_checkpoint_file = max(
-                            checkpoint_files[:-1],
-                            key=lambda x: int(re.search(r"vae\.(\d+)\.pt$", x).group(1))
-                            if not x.endswith("ema.pt")
-                            else -1,
-                        )
-                        accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
-                    else:
-                        accelerator.print("No usable checkpoint found.")
-                elif latest_checkpoint_file != orig_vae_path:
-                    accelerator.print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
-                else:
-                    accelerator.print("Using checkpoint specified in vae_path: ", orig_vae_path)
-
-                args.vae_path = latest_checkpoint_file
-            else:
-                accelerator.print("No checkpoints found in directory: ", args.vae_path)
+            args.vae_path, ema_model_path = get_latest_checkpoints(args.vae_path, use_ema=args.use_ema)
+            print(f"Resuming VAE from latest checkpoint: {args.vae_path if  not args.use_ema else ema_model_path}")
+            #if args.use_ema:
+            #    print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
         else:
             accelerator.print("Resuming VAE from: ", args.vae_path)
 
-        vae.load(args.vae_path)
+        vae.load(args.vae_path if not args.use_ema or not ema_model_path else ema_model_path, map="cpu")
 
     if args.use_paintmind:
         # load VAE
