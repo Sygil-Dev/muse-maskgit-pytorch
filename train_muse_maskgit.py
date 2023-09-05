@@ -594,13 +594,28 @@ def main():
             accelerator.print("Loading Muse VQGanVAE")
 
             if args.latest_checkpoint:
-                args.vae_path, ema_vae_path = get_latest_checkpoints(args.vae_path, use_ema=args.use_ema)
-                print(f"Resuming VAE from latest checkpoint: {args.vae_path if  not args.use_ema else ema_vae_path}")
-                #if args.use_ema:
-                #    print(f"Resuming EMA VAE from latest checkpoint: {ema_vae_path}")
+                args.vae_path, ema_model_path = get_latest_checkpoints(args.vae_path, use_ema=args.use_ema)
+                if ema_model_path:
+                    ema_vae = VQGanVAE(
+                        dim=args.dim,
+                        vq_codebook_dim=args.vq_codebook_dim,
+                        vq_codebook_size=args.vq_codebook_size,
+                        l2_recon_loss=args.use_l2_recon_loss,
+                        channels=args.channels,
+                        layers=args.layers,
+                        discr_layers=args.discr_layers,
+                        accelerator=accelerator,
+                    )
+                    print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
+
+                    ema_vae.load(ema_model_path, map="cpu")
+                else:
+                    ema_vae = None
+
+                print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
             else:
                 accelerator.print("Resuming VAE from: ", args.vae_path)
-                ema_vae_path = None
+                ema_vae = None
 
             # use config next to checkpoint if there is one and merge the cli arguments to it
             # the cli arguments will take priority so we can use it to override any value we want.
@@ -621,7 +636,7 @@ def main():
                 discr_layers=args.discr_layers,
             ).to(accelerator.device)
 
-            vae.load(args.vae_path if not args.use_ema or not ema_vae_path else ema_vae_path, map="cpu")
+            vae.load(args.vae_path, map="cpu")
 
         elif args.taming_model_path is not None and args.taming_config_path is not None:
             accelerator.print(f"Using Taming VQGanVAE, loading from {args.taming_model_path}")
@@ -844,6 +859,7 @@ def main():
         results_dir=args.results_dir,
         logging_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
         use_ema=args.use_ema,
+        ema_vae=ema_vae,
         ema_update_after_step=args.ema_update_after_step,
         ema_update_every=args.ema_update_every,
         apply_grad_penalty_every=args.apply_grad_penalty_every,

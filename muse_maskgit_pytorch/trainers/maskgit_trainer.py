@@ -50,6 +50,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         logging_dir="./results/logs",
         apply_grad_penalty_every=4,
         use_ema=True,
+        ema_vae=None,
         ema_update_after_step=0,
         ema_update_every=1,
         validation_prompts=["a photo of a dog"],
@@ -100,6 +101,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         if use_ema:
             ema_model = EMA(
                 self.model,
+                ema_model=ema_vae,
                 update_after_step=ema_update_after_step,
                 update_every=ema_update_every,
             )

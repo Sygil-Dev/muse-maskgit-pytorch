@@ -481,10 +481,27 @@ def main():
 
         if args.latest_checkpoint:
             args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="vae")
-            #print(f"Resuming VAE from latest checkpoint: {args.resume_path if  not args.use_ema else ema_model_path}")
+            if ema_model_path:
+                ema_vae = VQGanVAE(
+                    dim=args.dim,
+                    vq_codebook_dim=args.vq_codebook_dim,
+                    vq_codebook_size=args.vq_codebook_size,
+                    l2_recon_loss=args.use_l2_recon_loss,
+                    channels=args.channels,
+                    layers=args.layers,
+                    discr_layers=args.discr_layers,
+                    accelerator=accelerator,
+                )
+                print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
+
+                ema_vae.load(ema_model_path, map="cpu")
+            else:
+                ema_vae = None
+
             print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
         else:
             accelerator.print("Resuming VAE from: ", args.resume_path)
+            ema_vae = None
 
         if load:
             #vae.load(args.resume_path if not args.use_ema or not ema_model_path else ema_model_path, map="cpu")
@@ -515,6 +532,7 @@ def main():
         current_step = 0
     else:
         accelerator.print("Initialising empty VAE")
+
         vae = VQGanVAE(
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
@@ -524,6 +542,8 @@ def main():
             discr_layers=args.discr_layers,
             accelerator=accelerator,
         )
+
+        ema_vae = None
 
         current_step = 0
 
@@ -564,6 +584,7 @@ def main():
         save_model_every=args.save_model_every,
         results_dir=args.results_dir,
         logging_dir=args.logging_dir if args.logging_dir else os.path.join(args.results_dir, "logs"),
+        ema_vae=ema_vae,
         use_ema=args.use_ema,
         ema_beta=args.ema_beta,
         ema_update_after_step=args.ema_update_after_step,
