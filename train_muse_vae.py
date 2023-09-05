@@ -1,7 +1,5 @@
 import argparse
-import glob
 import os
-import re
 from dataclasses import dataclass
 from typing import Optional, Union
 
@@ -9,7 +7,9 @@ import wandb
 from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from omegaconf import OmegaConf
-
+from muse_maskgit_pytorch.utils import (
+    get_latest_checkpoints,
+)
 from muse_maskgit_pytorch import (
     VQGanVAE,
     VQGanVAETaming,
@@ -466,7 +466,8 @@ def main():
 
     if args.resume_path is not None and len(args.resume_path) > 1:
         load = True
-        accelerator.print(f"Using Muse VQGanVAE, loading from {args.resume_path}")
+
+        accelerator.print(f"Loading Muse VQGanVAE...")
         vae = VQGanVAE(
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
@@ -479,48 +480,14 @@ def main():
         )
 
         if args.latest_checkpoint:
-            accelerator.print("Finding latest checkpoint...")
-            orig_vae_path = args.resume_path
-
-            if os.path.isfile(args.resume_path) or ".pt" in args.resume_path:
-                # If args.vae_path is a file, split it into directory and filename
-                args.resume_path, _ = os.path.split(args.resume_path)
-
-            checkpoint_files = glob.glob(os.path.join(args.resume_path, "vae.*.pt"))
-            if checkpoint_files:
-                latest_checkpoint_file = max(
-                    checkpoint_files, key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
-                )
-
-                # Check if latest checkpoint is empty or unreadable
-                if os.path.getsize(latest_checkpoint_file) == 0 or not os.access(
-                    latest_checkpoint_file, os.R_OK
-                ):
-                    accelerator.print(
-                        f"Warning: latest checkpoint {latest_checkpoint_file} is empty or unreadable."
-                    )
-                    if len(checkpoint_files) > 1:
-                        # Use the second last checkpoint as a fallback
-                        latest_checkpoint_file = max(
-                            checkpoint_files[:-1], key=lambda x: int(re.search(r"vae\.(\d+)\.pt", x).group(1))
-                        )
-                        accelerator.print("Using second last checkpoint: ", latest_checkpoint_file)
-                    else:
-                        accelerator.print("No usable checkpoint found.")
-                        load = False
-                elif latest_checkpoint_file != orig_vae_path:
-                    accelerator.print("Resuming VAE from latest checkpoint: ", latest_checkpoint_file)
-                else:
-                    accelerator.print("Using checkpoint specified in vae_path: ", orig_vae_path)
-
-                args.resume_path = latest_checkpoint_file
-            else:
-                accelerator.print("No checkpoints found in directory: ", args.resume_path)
-                load = False
+            args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="vae")
+            #print(f"Resuming VAE from latest checkpoint: {args.resume_path if  not args.use_ema else ema_model_path}")
+            print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
         else:
             accelerator.print("Resuming VAE from: ", args.resume_path)
 
         if load:
+            #vae.load(args.resume_path if not args.use_ema or not ema_model_path else ema_model_path, map="cpu")
             vae.load(args.resume_path, map="cpu")
 
             resume_from_parts = args.resume_path.split(".")

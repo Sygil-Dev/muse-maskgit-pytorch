@@ -439,7 +439,11 @@ class VQGanVAE(nn.Module):
 
     @remove_vgg
     def load_state_dict(self, *args, **kwargs):
-        return super().load_state_dict(*args, **kwargs)
+        try:
+            return super().load_state_dict(*args, **kwargs)
+        except RuntimeError:
+            return super().load_state_dict(*args, **kwargs, strict=False)
+
 
     def save(self, path):
         if self.accelerator is not None:
