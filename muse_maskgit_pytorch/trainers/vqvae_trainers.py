@@ -236,7 +236,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                 log_imgs.append(Image.open(ema_save_path))
                 prompts.append("ema")
 
-            super().log_validation_images(log_imgs, steps, prompts=prompts)
+        super().log_validation_images(log_imgs, steps, prompts=prompts)
         self.model.train()
 
     def train(self):
