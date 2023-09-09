@@ -470,7 +470,10 @@ class MaskGit(nn.Module):
         if not path.exists() and path.is_file():
             raise ValueError(f"cannot find file {path} (does not exist or is not a file)")
         state_dict = torch.load(str(path), map_location="cpu")
-        self.load_state_dict(state_dict)
+        try:
+            self.load_state_dict(state_dict)
+        except RuntimeError:
+            self.load_state_dict(state_dict, strict=False)
 
     def print(self, *args, **kwargs):
         return self.accelerator.print(*args, **kwargs) if self.accelerator else print(*args, **kwargs)
