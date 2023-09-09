@@ -29,7 +29,6 @@ from muse_maskgit_pytorch.dataset import (
 from muse_maskgit_pytorch.utils import (
     get_latest_checkpoints,
 )
-
 from muse_maskgit_pytorch.vqvae import VQVAE
 
 # Create the parser
@@ -380,8 +379,10 @@ def main():
 
         if args.latest_checkpoint:
             args.vae_path, ema_model_path = get_latest_checkpoints(args.vae_path, use_ema=args.use_ema)
-            print(f"Resuming VAE from latest checkpoint: {args.vae_path if  not args.use_ema else ema_model_path}")
-            #if args.use_ema:
+            print(
+                f"Resuming VAE from latest checkpoint: {args.vae_path if  not args.use_ema else ema_model_path}"
+            )
+            # if args.use_ema:
             #    print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
         else:
             accelerator.print("Resuming VAE from: ", args.vae_path)

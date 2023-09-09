@@ -1,7 +1,6 @@
 import torch
 from accelerate import Accelerator
 from diffusers.optimization import get_scheduler
-from einops import rearrange
 from ema_pytorch import EMA
 from omegaconf import OmegaConf
 from PIL import Image
@@ -55,6 +54,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         lr_warmup_steps=500,
         discr_max_grad_norm=None,
         use_ema=True,
+        ema_vae=None,
         ema_beta=0.995,
         ema_update_after_step=0,
         ema_update_every=1,
@@ -155,6 +155,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         if use_ema:
             self.ema_model = EMA(
                 vae,
+                ema_model=ema_vae,
                 update_after_step=ema_update_after_step,
                 update_every=ema_update_every,
             )
@@ -216,6 +217,22 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             grid = make_grid([sample, recon], nrow=2)
             if self.use_ema:
                 ema_grid = make_grid([sample, ema_recon], nrow=2)
+
+            # Scale the images
+            if self.validation_image_scale > 1:
+                grid = torch.nn.functional.interpolate(
+                    grid.unsqueeze(0),
+                    scale_factor=self.validation_image_scale,
+                    mode="bicubic",
+                    align_corners=False,
+                )
+                if self.use_ema:
+                    ema_grid = torch.nn.functional.interpolate(
+                        ema_grid.unsqueeze(0),
+                        scale_factor=self.validation_image_scale,
+                        mode="bicubic",
+                        align_corners=False,
+                    )
 
             # Save grid
             grid_file = f"{steps}_{i}.png"
