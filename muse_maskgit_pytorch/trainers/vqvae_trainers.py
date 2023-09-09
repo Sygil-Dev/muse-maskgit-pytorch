@@ -220,9 +220,19 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
             # Scale the images
             if self.validation_image_scale > 1:
-                grid = torch.nn.functional.interpolate(grid.unsqueeze(0), scale_factor=self.validation_image_scale, mode="bicubic", align_corners=False)
+                grid = torch.nn.functional.interpolate(
+                    grid.unsqueeze(0),
+                    scale_factor=self.validation_image_scale,
+                    mode="bicubic",
+                    align_corners=False,
+                )
                 if self.use_ema:
-                    ema_grid = torch.nn.functional.interpolate(ema_grid.unsqueeze(0), scale_factor=self.validation_image_scale, mode="bicubic", align_corners=False)
+                    ema_grid = torch.nn.functional.interpolate(
+                        ema_grid.unsqueeze(0),
+                        scale_factor=self.validation_image_scale,
+                        mode="bicubic",
+                        align_corners=False,
+                    )
 
             # Save grid
             grid_file = f"{steps}_{i}.png"
@@ -245,8 +255,6 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
 
         super().log_validation_images(log_imgs, steps, prompts=prompts)
         self.model.train()
-
-
 
     def train(self):
         self.steps = self.steps + 1

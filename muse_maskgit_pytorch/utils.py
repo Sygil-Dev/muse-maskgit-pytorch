@@ -1,5 +1,11 @@
 from __future__ import print_function
-import re, glob, os, torch
+
+import glob
+import os
+import re
+
+import torch
+
 
 def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_image_size=False):
     """Gets the latest checkpoint paths for both the non-ema and ema VAEs.
@@ -15,8 +21,10 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
     if cond_image_size:
         checkpoint_files = glob.glob(os.path.join(vae_path, "maskgit_superres.*.pt"))
     else:
-        checkpoint_files = glob.glob(os.path.join(vae_path, "vae.*.pt" if model_type == "vae" else "maskgit.*.pt"))
-    #print(checkpoint_files)
+        checkpoint_files = glob.glob(
+            os.path.join(vae_path, "vae.*.pt" if model_type == "vae" else "maskgit.*.pt")
+        )
+    # print(checkpoint_files)
 
     print(f"Finding latest {'VAE' if model_type == 'vae' else 'MaskGit'} checkpoint...")
 
@@ -29,7 +37,9 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
     else:
         latest_non_ema_checkpoint_file = max(
             checkpoint_files,
-            key=lambda x: int(re.search(r"vae\.(\d+)\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.pt$", x).group(1))
+            key=lambda x: int(
+                re.search(r"vae\.(\d+)\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.pt$", x).group(1)
+            )
             if not x.endswith("ema.pt")
             else -1,
         )
@@ -38,9 +48,7 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
     if os.path.getsize(latest_non_ema_checkpoint_file) == 0 or not os.access(
         latest_non_ema_checkpoint_file, os.R_OK
     ):
-        print(
-            f"Warning: latest checkpoint {latest_non_ema_checkpoint_file} is empty or unreadable."
-        )
+        print(f"Warning: latest checkpoint {latest_non_ema_checkpoint_file} is empty or unreadable.")
         if len(checkpoint_files) > 1:
             # Use the second last checkpoint as a fallback
             if cond_image_size:
@@ -51,7 +59,11 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
             else:
                 latest_non_ema_checkpoint_file = max(
                     checkpoint_files[:-1],
-                    key=lambda x: int(re.search(r"vae\.(\d+)\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.pt$", x).group(1))
+                    key=lambda x: int(
+                        re.search(
+                            r"vae\.(\d+)\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.pt$", x
+                        ).group(1)
+                    )
                     if not x.endswith("ema.pt")
                     else -1,
                 )
@@ -71,7 +83,11 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
         else:
             latest_ema_checkpoint_file = max(
                 checkpoint_files,
-                key=lambda x: int(re.search(r"vae\.(\d+)\.ema\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.ema\.pt$", x).group(1))
+                key=lambda x: int(
+                    re.search(
+                        r"vae\.(\d+)\.ema\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.ema\.pt$", x
+                    ).group(1)
+                )
                 if x.endswith("ema.pt")
                 else -1,
             )
@@ -79,9 +95,7 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
         if os.path.getsize(latest_ema_checkpoint_file) == 0 or not os.access(
             latest_ema_checkpoint_file, os.R_OK
         ):
-            print(
-                f"Warning: latest EMA checkpoint {latest_ema_checkpoint_file} is empty or unreadable."
-            )
+            print(f"Warning: latest EMA checkpoint {latest_ema_checkpoint_file} is empty or unreadable.")
             if len(checkpoint_files) > 1:
                 # Use the second last checkpoint as a fallback
                 if cond_image_size:
@@ -94,7 +108,14 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
                 else:
                     latest_ema_checkpoint_file = max(
                         checkpoint_files[:-1],
-                        key=lambda x: int(re.search(r"vae\.(\d+)\.ema\.pt$" if model_type == "vae" else r"maskgit\.(\d+)\.ema\.pt$", x).group(1))
+                        key=lambda x: int(
+                            re.search(
+                                r"vae\.(\d+)\.ema\.pt$"
+                                if model_type == "vae"
+                                else r"maskgit\.(\d+)\.ema\.pt$",
+                                x,
+                            ).group(1)
+                        )
                         if x.endswith("ema.pt")
                         else -1,
                     )
@@ -103,6 +124,7 @@ def get_latest_checkpoints(resume_path, use_ema=False, model_type="vae", cond_im
         latest_ema_checkpoint_file = None
 
     return latest_non_ema_checkpoint_file, latest_ema_checkpoint_file
+
 
 def remove_duplicate_weights(ema_state_dict, non_ema_state_dict):
     """Removes duplicate weights from the ema state dictionary.

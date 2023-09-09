@@ -288,21 +288,21 @@ class BaseAcceleratedTrainer(nn.Module):
         return pkg
 
     def log_validation_images(self, images, step, prompts=None):
-        #if self.validation_image_scale > 1:
-            ## Calculate the new height based on the scale factor
-            #new_height = int(np.array(images[0]).shape[0] * self.validation_image_scale)
+        # if self.validation_image_scale > 1:
+        ## Calculate the new height based on the scale factor
+        # new_height = int(np.array(images[0]).shape[0] * self.validation_image_scale)
 
-            ## Calculate the aspect ratio of the original image
-            #aspect_ratio = np.array(images[0]).shape[1] / np.array(images[0]).shape[0]
+        ## Calculate the aspect ratio of the original image
+        # aspect_ratio = np.array(images[0]).shape[1] / np.array(images[0]).shape[0]
 
-            ## Calculate the new width based on the new height and aspect ratio
-            #new_width = int(new_height * aspect_ratio)
+        ## Calculate the new width based on the new height and aspect ratio
+        # new_width = int(new_height * aspect_ratio)
 
-            ## Resize the images using the new width and height
-            #output_size = (new_width, new_height)
-            #images_pil = [Image.fromarray(np.array(image)) for image in images]
-            #images_pil_resized = [image_pil.resize(output_size) for image_pil in images_pil]
-            #images = [np.array(image_pil) for image_pil in images_pil_resized]
+        ## Resize the images using the new width and height
+        # output_size = (new_width, new_height)
+        # images_pil = [Image.fromarray(np.array(image)) for image in images]
+        # images_pil_resized = [image_pil.resize(output_size) for image_pil in images_pil]
+        # images = [np.array(image_pil) for image_pil in images_pil_resized]
 
         for tracker in self.accelerator.trackers:
             if tracker.name == "tensorboard":

@@ -15,6 +15,7 @@ from diffusers.optimization import SchedulerType, get_scheduler
 from omegaconf import OmegaConf
 from rich import inspect
 from torch.optim import Optimizer
+
 from muse_maskgit_pytorch.utils import (
     get_latest_checkpoints,
 )
@@ -707,9 +708,14 @@ def main():
 
             if args.latest_checkpoint:
                 try:
-                    args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="maskgit", cond_image_size=args.cond_image_size)
+                    args.resume_path, ema_model_path = get_latest_checkpoints(
+                        args.resume_path,
+                        use_ema=args.use_ema,
+                        model_type="maskgit",
+                        cond_image_size=args.cond_image_size,
+                    )
                     print(f"Resuming MaskGit from latest checkpoint: {args.resume_path}")
-                    #if args.use_ema:
+                    # if args.use_ema:
                     #    print(f"Resuming EMA MaskGit from latest checkpoint: {ema_model_path}")
 
                 except ValueError:

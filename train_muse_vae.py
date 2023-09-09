@@ -7,9 +7,7 @@ import wandb
 from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from omegaconf import OmegaConf
-from muse_maskgit_pytorch.utils import (
-    get_latest_checkpoints,
-)
+
 from muse_maskgit_pytorch import (
     VQGanVAE,
     VQGanVAETaming,
@@ -20,6 +18,9 @@ from muse_maskgit_pytorch.dataset import (
     ImageDataset,
     get_dataset_from_dataroot,
     split_dataset_into_dataloaders,
+)
+from muse_maskgit_pytorch.utils import (
+    get_latest_checkpoints,
 )
 
 # disable bitsandbytes welcome message.
@@ -467,7 +468,7 @@ def main():
     if args.resume_path is not None and len(args.resume_path) > 1:
         load = True
 
-        accelerator.print(f"Loading Muse VQGanVAE...")
+        accelerator.print("Loading Muse VQGanVAE...")
         vae = VQGanVAE(
             dim=args.dim,
             vq_codebook_dim=args.vq_codebook_dim,
@@ -481,7 +482,9 @@ def main():
 
         if args.latest_checkpoint:
             try:
-                args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="vae")
+                args.resume_path, ema_model_path = get_latest_checkpoints(
+                    args.resume_path, use_ema=args.use_ema, model_type="vae"
+                )
 
                 if ema_model_path:
                     ema_vae = VQGanVAE(
@@ -506,7 +509,7 @@ def main():
                 load = False
 
         if load:
-            #vae.load(args.resume_path if not args.use_ema or not ema_model_path else ema_model_path, map="cpu")
+            # vae.load(args.resume_path if not args.use_ema or not ema_model_path else ema_model_path, map="cpu")
             vae.load(args.resume_path, map="cpu")
 
             resume_from_parts = args.resume_path.split(".")
@@ -518,7 +521,7 @@ def main():
             if current_step == 0:
                 accelerator.print("No step found for the VAE model.")
         else:
-            #accelerator.print("Resuming VAE from: ", args.resume_path)
+            # accelerator.print("Resuming VAE from: ", args.resume_path)
             ema_vae = None
             accelerator.print("No step found for the VAE model.")
             current_step = 0

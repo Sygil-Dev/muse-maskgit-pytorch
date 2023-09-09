@@ -444,7 +444,6 @@ class VQGanVAE(nn.Module):
         except RuntimeError:
             return super().load_state_dict(*args, **kwargs, strict=False)
 
-
     def save(self, path):
         if self.accelerator is not None:
             self.accelerator.save(self.state_dict(), path)
