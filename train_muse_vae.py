@@ -480,28 +480,30 @@ def main():
         )
 
         if args.latest_checkpoint:
-            args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="vae")
-            if ema_model_path:
-                ema_vae = VQGanVAE(
-                    dim=args.dim,
-                    vq_codebook_dim=args.vq_codebook_dim,
-                    vq_codebook_size=args.vq_codebook_size,
-                    l2_recon_loss=args.use_l2_recon_loss,
-                    channels=args.channels,
-                    layers=args.layers,
-                    discr_layers=args.discr_layers,
-                    accelerator=accelerator,
-                )
-                print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
+            try:
+                args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="vae")
 
-                ema_vae.load(ema_model_path, map="cpu")
-            else:
-                ema_vae = None
+                if ema_model_path:
+                    ema_vae = VQGanVAE(
+                        dim=args.dim,
+                        vq_codebook_dim=args.vq_codebook_dim,
+                        vq_codebook_size=args.vq_codebook_size,
+                        l2_recon_loss=args.use_l2_recon_loss,
+                        channels=args.channels,
+                        layers=args.layers,
+                        discr_layers=args.discr_layers,
+                        accelerator=accelerator,
+                    )
+                    print(f"Resuming EMA VAE from latest checkpoint: {ema_model_path}")
 
-            print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
-        else:
-            accelerator.print("Resuming VAE from: ", args.resume_path)
-            ema_vae = None
+                    ema_vae.load(ema_model_path, map="cpu")
+                else:
+                    ema_vae = None
+
+                print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
+
+            except ValueError:
+                load = False
 
         if load:
             #vae.load(args.resume_path if not args.use_ema or not ema_model_path else ema_model_path, map="cpu")
@@ -516,6 +518,8 @@ def main():
             if current_step == 0:
                 accelerator.print("No step found for the VAE model.")
         else:
+            #accelerator.print("Resuming VAE from: ", args.resume_path)
+            ema_vae = None
             accelerator.print("No step found for the VAE model.")
             current_step = 0
 

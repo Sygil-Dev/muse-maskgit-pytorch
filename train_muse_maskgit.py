@@ -706,10 +706,15 @@ def main():
             accelerator.print("Loading Muse MaskGit...")
 
             if args.latest_checkpoint:
-                args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="maskgit", cond_image_size=args.cond_image_size)
-                print(f"Resuming MaskGit from latest checkpoint: {args.resume_path}")
-                #if args.use_ema:
-                #    print(f"Resuming EMA MaskGit from latest checkpoint: {ema_model_path}")
+                try:
+                    args.resume_path, ema_model_path = get_latest_checkpoints(args.resume_path, use_ema=args.use_ema, model_type="maskgit", cond_image_size=args.cond_image_size)
+                    print(f"Resuming MaskGit from latest checkpoint: {args.resume_path}")
+                    #if args.use_ema:
+                    #    print(f"Resuming EMA MaskGit from latest checkpoint: {ema_model_path}")
+
+                except ValueError:
+                    load = False
+
             else:
                 accelerator.print("Resuming MaskGit from: ", args.resume_path)
 
