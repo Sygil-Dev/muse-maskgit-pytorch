@@ -613,7 +613,7 @@ def main():
                 else:
                     ema_vae = None
 
-                print(f"Resuming VAE from latest checkpoint: {args.resume_path}")
+                print(f"Resuming VAE from latest checkpoint: {args.vae_path}")
             else:
                 accelerator.print("Resuming VAE from: ", args.vae_path)
                 ema_vae = None
