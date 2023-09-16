@@ -147,10 +147,11 @@ def remove_duplicate_weights(ema_state_dict, non_ema_state_dict):
             del ema_state_dict_copy[key]
     return ema_state_dict_copy
 
-def vae_folder_validation(accelerator, vae, dataset, args=None):
+def vae_folder_validation(accelerator, vae, dataset, args=None, checkpoint_name="vae", save_originals=False):
 
     # Create output directory and save input images and reconstructions as grids
-    output_dir = os.path.join(args.results_dir, "outputs", os.path.basename(args.input_folder))
+    output_dir = os.path.join(args.results_dir, "outputs",
+                              os.path.basename(args.input_folder if args.input_folder else args.validation_folder_at_end_of_epoch))
     os.makedirs(output_dir, exist_ok=True)
 
     for i in tqdm(range(len(dataset))):
@@ -159,16 +160,26 @@ def vae_folder_validation(accelerator, vae, dataset, args=None):
             try:
                 save_image(dataset[i], f"{output_dir}/input.png")
 
-                # encode
-                encoded, _, _ = vae.encode(
-                    dataset[i][None].to(
-                        "cpu"
-                        if args.cpu
-                        else accelerator.device
-                        if args.gpu == 0
-                        else f"cuda:{args.gpu}"
+                try:
+                    # encode
+                    encoded, _, _ = vae.encode(
+                        dataset[i][None].to(
+                            "cpu"
+                            if args.cpu
+                            else accelerator.device
+                            if args.gpu == 0
+                            else f"cuda:{args.gpu}"
+                        )
                     )
-                )
+                except AttributeError:
+                    # encode
+                    encoded, _, _ = vae.encode(
+                        dataset[i][None].to(
+                            accelerator.device
+                            if accelerator.device
+                            else f"cuda:{args.gpu}"
+                        )
+                    )
 
                 # decode
                 recon = vae.decode(encoded).squeeze(0)
@@ -191,10 +202,10 @@ def vae_folder_validation(accelerator, vae, dataset, args=None):
                 now = datetime.now().strftime("%m-%d-%Y_%H-%M-%S")
                 hash = hashlib.sha1(input_image.tobytes()).hexdigest()
 
-                filename = f"{hash}_{now}-{os.path.basename(args.vae_path)}.png"
+                filename = f"{hash}_{now}-{os.path.basename(checkpoint_name)}.png"
                 grid_image.save(f"{output_dir}/{filename}", format="PNG")
 
-                if not args.save_originals:
+                if not save_originals:
                     # Remove input and output images after the grid was made.
                     os.remove(f"{output_dir}/input.png")
                     os.remove(f"{output_dir}/output.png")
@@ -214,6 +225,8 @@ def vae_folder_validation(accelerator, vae, dataset, args=None):
 
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
+
+                dataset[i][None].to("cpu")
 
                 break  # Exit the retry loop if there were no errors
 

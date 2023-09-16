@@ -1,21 +1,14 @@
 import argparse
-import glob
-import hashlib
 import os
 import random
-import re
-import shutil
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 
 import accelerate
-import PIL
 import torch
 from accelerate.utils import ProjectConfiguration
 from datasets import Dataset, Image, load_dataset
 from torchvision.utils import save_image
-from tqdm import tqdm
 
 from muse_maskgit_pytorch import (
     VQGanVAE,
@@ -28,6 +21,7 @@ from muse_maskgit_pytorch.dataset import (
 )
 from muse_maskgit_pytorch.utils import (
     get_latest_checkpoints,
+    vae_folder_validation,
 )
 from muse_maskgit_pytorch.vqvae import VQVAE
 
@@ -458,106 +452,7 @@ def main():
         save_image(recon, f"{args.results_dir}/outputs/output.png")
 
     if args.input_folder:
-        # Create output directory and save input images and reconstructions as grids
-        output_dir = os.path.join(args.results_dir, "outputs", os.path.basename(args.input_folder))
-        os.makedirs(output_dir, exist_ok=True)
-
-        for i in tqdm(range(len(dataset))):
-            retries = 0
-            while True:
-                try:
-                    save_image(dataset[i], f"{output_dir}/input.png")
-
-                    if not args.use_paintmind:
-                        # encode
-                        _, ids, _ = vae.encode(
-                            dataset[i][None].to(
-                                "cpu"
-                                if args.cpu
-                                else accelerator.device
-                                if args.gpu == 0
-                                else f"cuda:{args.gpu}"
-                            )
-                        )
-                        # decode
-                        recon = vae.decode_from_ids(ids)
-                        # print (recon.shape) # torch.Size([1, 3, 512, 1136])
-                        save_image(recon, f"{output_dir}/output.png")
-                    else:
-                        # encode
-                        encoded, _, _ = vae.encode(
-                            dataset[i][None].to(
-                                "cpu"
-                                if args.cpu
-                                else accelerator.device
-                                if args.gpu == 0
-                                else f"cuda:{args.gpu}"
-                            )
-                        )
-
-                        # decode
-                        recon = vae.decode(encoded).squeeze(0)
-                        recon = torch.clamp(recon, -1.0, 1.0)
-                        save_image(recon, f"{output_dir}/output.png")
-
-                    # Load input and output images
-                    input_image = PIL.Image.open(f"{output_dir}/input.png")
-                    output_image = PIL.Image.open(f"{output_dir}/output.png")
-
-                    # Create horizontal grid with input and output images
-                    grid_image = PIL.Image.new(
-                        "RGB" if args.channels == 3 else "RGBA",
-                        (input_image.width + output_image.width, input_image.height),
-                    )
-                    grid_image.paste(input_image, (0, 0))
-                    grid_image.paste(output_image, (input_image.width, 0))
-
-                    # Save grid
-                    now = datetime.now().strftime("%m-%d-%Y_%H-%M-%S")
-                    hash = hashlib.sha1(input_image.tobytes()).hexdigest()
-
-                    filename = f"{hash}_{now}-{os.path.basename(args.vae_path)}.png"
-                    grid_image.save(f"{output_dir}/{filename}", format="PNG")
-
-                    if not args.save_originals:
-                        # Remove input and output images after the grid was made.
-                        os.remove(f"{output_dir}/input.png")
-                        os.remove(f"{output_dir}/output.png")
-                    else:
-                        os.makedirs(os.path.join(output_dir, "originals"), exist_ok=True)
-                        shutil.move(
-                            f"{output_dir}/input.png",
-                            f"{os.path.join(output_dir, 'originals')}/input_{now}.png",
-                        )
-                        shutil.move(
-                            f"{output_dir}/output.png",
-                            f"{os.path.join(output_dir, 'originals')}/output_{now}.png",
-                        )
-
-                    del _
-                    del ids
-                    del recon
-
-                    torch.cuda.empty_cache()
-                    torch.cuda.ipc_collect()
-
-                    break  # Exit the retry loop if there were no errors
-
-                except RuntimeError as e:
-                    if "out of memory" in str(e) and retries < args.max_retries:
-                        retries += 1
-                        # print(f"Out of Memory. Retry #{retries}")
-                        torch.cuda.empty_cache()
-                        torch.cuda.ipc_collect()
-                        continue  # Retry the loop
-
-                    else:
-                        if "out of memory" not in str(e):
-                            print(f"\n{e}")
-                        else:
-                            print(f"Skipping image {i} after {retries} retries due to out of memory error")
-                        break  # Exit the retry loop after too many retries
-
+        vae_folder_validation(accelerator, vae, dataset, args=args, checkpoint_name=args.vae_path, save_originals=args.save_originals)
 
 if __name__ == "__main__":
     main()

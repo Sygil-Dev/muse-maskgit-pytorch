@@ -1,4 +1,4 @@
-import torch
+import torch, os
 from accelerate import Accelerator
 from diffusers.optimization import get_scheduler
 from ema_pytorch import EMA
@@ -8,7 +8,10 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
-
+from typing import Optional
+from muse_maskgit_pytorch.utils import (
+    vae_folder_validation,
+)
 from muse_maskgit_pytorch.trainers.base_accelerated_trainer import (
     BaseAcceleratedTrainer,
     get_optimizer,
@@ -66,6 +69,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         use_8bit_adam=False,
         num_cycles=1,
         scheduler_power=1.0,
+        validation_folder_at_end_of_epoch: Optional[DataLoader] = None,
         args=None,
     ):
         super().__init__(
@@ -90,6 +94,8 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         # arguments used for the training script,
         # we are going to use them later to save them to a config file.
         self.args = args
+
+        self.validation_folder_at_end_of_epoch = validation_folder_at_end_of_epoch
 
         self.current_step = current_step
 
@@ -266,6 +272,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
         else:
             proc_label = f"[P{self.accelerator.process_index:03d}][Worker]"
 
+
         for epoch in range(self.current_step // len(self.dl), self.num_epochs):
             for img in self.dl:
                 loss = 0.0
@@ -340,7 +347,11 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                     )
 
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
-                self.accelerator.log(logs, step=steps)
+                try:
+                    self.accelerator.log(logs, step=steps)
+                except ConnectionResetError:
+                    print ("There was an error with the Wandb connection. Retrying...")
+                    self.accelerator.log(logs, step=steps)
 
                 # update exponential moving averaged generator
 
@@ -385,6 +396,15 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
                             OmegaConf.save(conf, f"{model_path}.yaml")
 
                 self.steps += 1
+
+            #
+
+            if self.validation_folder_at_end_of_epoch:
+                vae_folder_validation(self.accelerator, self.model, self.validation_folder_at_end_of_epoch,
+                                      self.args,
+                                      checkpoint_name=os.path.join(self.results_dir, f'vae.{steps}.pt'),
+
+                                      )
 
             # if self.num_train_steps > 0 and int(self.steps.item()) >= self.num_train_steps:
             # self.accelerator.print(
