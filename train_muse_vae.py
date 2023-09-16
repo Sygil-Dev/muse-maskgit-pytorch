@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 import wandb
 from accelerate.utils import ProjectConfiguration
-from datasets import load_dataset
+from datasets import load_dataset, Dataset, Image
 from omegaconf import OmegaConf
 
 from muse_maskgit_pytorch import (
@@ -319,6 +319,19 @@ parser.add_argument(
     action="store_true",
     help="Use F.mse_loss instead of F.l1_loss.",
 )
+parser.add_argument(
+    "--validation_folder_at_end_of_epoch",
+    type=str,
+    default=None,
+    help="Path to a folder containing images that will be used for validation/reconstruction."
+    " At the end of each Epoch this folder will be used for validation and reconstructions will be saved to a subfolder called 'outputs/validation'.",
+)
+parser.add_argument(
+    "--exclude_folders",
+    type=str,
+    default=None,
+    help="List of folders we want to exclude when doing reconstructions from an input folder.",
+)
 
 
 @dataclass
@@ -383,6 +396,9 @@ class Arguments:
     use_l2_recon_loss: bool = False
     debug: bool = False
     config_path: Optional[str] = None
+    validation_folder_at_end_of_epoch: Optional[str] = None
+    input_folder = None
+    exclude_folders: Optional[str] = None
 
 
 def preprocess_webdataset(args, image):
@@ -575,6 +591,43 @@ def main():
     dataloader, validation_dataloader = split_dataset_into_dataloaders(
         dataset, args.valid_frac, args.seed, args.batch_size
     )
+
+    if args.validation_folder_at_end_of_epoch:
+        # Create dataset from input folder
+        extensions = ["jpg", "jpeg", "png", "webp"]
+        exclude_folders = args.exclude_folders.split(",") if args.exclude_folders else []
+
+        filepaths = []
+        for root, dirs, files in os.walk(args.validation_folder_at_end_of_epoch, followlinks=True):
+            # Resolve symbolic link to actual path and exclude based on actual path
+            resolved_root = os.path.realpath(root)
+            for exclude_folder in exclude_folders:
+                if exclude_folder in resolved_root:
+                    dirs[:] = []
+                    break
+            for file in files:
+                if file.lower().endswith(tuple(extensions)):
+                    filepaths.append(os.path.join(root, file))
+
+        if not filepaths:
+            print(f"No images with extensions {extensions} found in {args.validation_folder_at_end_of_epoch}.")
+            exit(1)
+
+        epoch_validation_dataset = Dataset.from_dict({"image": filepaths}).cast_column("image", Image())
+
+        epoch_validation_dataset = ImageDataset(
+            epoch_validation_dataset,
+            image_size=512,
+            image_column=args.image_column,
+            center_crop=False,
+            flip=False,
+            random_crop=False,
+            alpha_channel=False if args.channels == 3 else True,
+        )
+
+    else:
+        epoch_validation_dataset = None
+
     trainer = VQGanVAETrainer(
         vae,
         dataloader,
@@ -606,6 +659,7 @@ def main():
         num_cycles=args.num_cycles,
         scheduler_power=args.scheduler_power,
         num_epochs=args.num_epochs,
+        validation_folder_at_end_of_epoch=epoch_validation_dataset,
         args=args,
     )
 
