@@ -147,7 +147,7 @@ def remove_duplicate_weights(ema_state_dict, non_ema_state_dict):
             del ema_state_dict_copy[key]
     return ema_state_dict_copy
 
-def vae_folder_validation(accelerator, vae, dataset, args=None, checkpoint_name="vae", save_originals=False):
+def vae_folder_validation(accelerator, vae, dataset, args=None, checkpoint_name="vae", save_originals=False, epoch=None):
 
     # Create output directory and save input images and reconstructions as grids
     output_dir = os.path.join(args.results_dir, "outputs",
@@ -202,7 +202,7 @@ def vae_folder_validation(accelerator, vae, dataset, args=None, checkpoint_name=
                 now = datetime.now().strftime("%m-%d-%Y_%H-%M-%S")
                 hash = hashlib.sha1(input_image.tobytes()).hexdigest()
 
-                filename = f"{hash}_{now}-{os.path.basename(checkpoint_name)}.png"
+                filename = f"{hash}_{now}{'-' + epoch if epoch else ''}-{os.path.basename(checkpoint_name)}.png"
                 grid_image.save(f"{output_dir}/{filename}", format="PNG")
 
                 if not save_originals:

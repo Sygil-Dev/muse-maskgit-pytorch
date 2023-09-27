@@ -402,7 +402,7 @@ class VQGanVAETrainer(BaseAcceleratedTrainer):
             if self.validation_folder_at_end_of_epoch:
                 vae_folder_validation(self.accelerator, self.model, self.validation_folder_at_end_of_epoch,
                                       self.args,
-                                      checkpoint_name=os.path.join(self.results_dir, f'vae.{steps}.pt'),
+                                      checkpoint_name=os.path.join(self.results_dir, f'vae.{steps}_E{epoch + 1}.pt'),
 
                                       )
 
