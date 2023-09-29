@@ -49,6 +49,7 @@ setup(
         "omegaconf",
         "xformers>=0.0.20",
         "wandb",
+        "bz2file",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
