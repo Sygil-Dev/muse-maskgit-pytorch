@@ -154,14 +154,15 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         # logs
         for epoch in range(self.current_step // len(self.dl), self.num_epochs):
-            for imgs, input_ids, attn_mask in iter(self.dl):
+            for imgs, input_ids, attn_mask, text_embeds in iter(self.dl):
                 train_loss = 0.0
                 steps = int(self.steps.item())
 
-                with torch.no_grad():
-                    text_embeds = t5_encode_text_from_encoded(
-                        input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
-                    )
+                if not text_embeds:
+                    with torch.no_grad():
+                        text_embeds = t5_encode_text_from_encoded(
+                            input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
+                        )
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)

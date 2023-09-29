@@ -7,15 +7,18 @@ from typing import Optional, Union
 import accelerate
 import datasets
 import diffusers
+import torch
 import transformers
-import wandb
 from accelerate.utils import ProjectConfiguration
 from datasets import load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
 from omegaconf import OmegaConf
 from rich import inspect
 from torch.optim import Optimizer
+from tqdm import tqdm
 
+import wandb
+from muse_maskgit_pytorch.t5 import t5_encode_text_from_encoded
 from muse_maskgit_pytorch.utils import (
     get_latest_checkpoints,
 )
@@ -424,6 +427,12 @@ parser.add_argument(
     default="flash",
     help="what type of attention to use [ein, flash, xformers] | Default: flash",
 )
+parser.add_argument(
+    "--precompute",
+    action="store_true",
+    default=False,
+    help="whether to precompute text embeds",
+)
 
 
 @dataclass
@@ -497,6 +506,7 @@ class Arguments:
     debug: bool = False
     config_path: Optional[str] = None
     attention_type: str = "flash"
+    precompute: bool = False
 
 
 def main():
@@ -850,6 +860,67 @@ def main():
                     "name": args.run_name,
                 },
             },
+        )
+
+    embeds = []
+    if args.precompute:
+        accelerator.print("Beginning pre-computation of embeddings using T5...")
+        maskgit.transformer.t5.requires_grad_(False)
+        for imgs, input_ids, attn_mask, _ in tqdm(iter(dataloader)):
+            with torch.no_grad():
+                embedding = t5_encode_text_from_encoded(input_ids, attn_mask, maskgit.transformer.t5, "cpu")
+                embeds.append(embedding)
+
+        with accelerator.main_process_first():
+            if args.no_cache and args.train_data_dir:
+                dataset = LocalTextImageDataset(
+                    args.train_data_dir,
+                    args.image_size,
+                    tokenizer=transformer.tokenizer,
+                    center_crop=False if args.no_center_crop else True,
+                    flip=False if args.no_flip else True,
+                    using_taming=False if not args.taming_model_path else True,
+                    random_crop=args.random_crop if args.random_crop else False,
+                    alpha_channel=False if args.channels == 3 else True,
+                    embeds=embeds,
+                )
+            elif args.link:
+                if not args.dataset_name:
+                    raise AssertionError("You can only use links in huggingface datasets")
+
+                dataset = URLTextDataset(
+                    dataset,
+                    args.image_size,
+                    transformer.tokenizer,
+                    image_column=args.image_column,
+                    caption_column=args.caption_column,
+                    center_crop=False if args.no_center_crop else True,
+                    flip=False if args.no_flip else True,
+                    using_taming=False if not args.taming_model_path else True,
+                    embeds=embeds,
+                )
+            else:
+                dataset = ImageTextDataset(
+                    dataset,
+                    args.image_size,
+                    transformer.tokenizer,
+                    image_column=args.image_column,
+                    caption_column=args.caption_column,
+                    center_crop=False if args.no_center_crop else True,
+                    flip=False if args.no_flip else True,
+                    stream=args.streaming,
+                    using_taming=False if not args.taming_model_path else True,
+                    embeds=embeds,
+                )
+
+        accelerator.print("Embeddings pre-computed!")
+
+        # Create the dataloaders
+        dataloader, validation_dataloader = split_dataset_into_dataloaders(
+            dataset,
+            args.valid_frac if not args.streaming else 0,
+            args.seed,
+            args.batch_size,
         )
 
     # Create the trainer

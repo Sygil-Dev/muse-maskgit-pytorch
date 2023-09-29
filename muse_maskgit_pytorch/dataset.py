@@ -119,6 +119,7 @@ class ImageTextDataset(ImageDataset):
         stream=False,
         using_taming=False,
         random_crop=False,
+        embeds=[],
     ):
         super().__init__(
             dataset,
@@ -132,21 +133,28 @@ class ImageTextDataset(ImageDataset):
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
+        self.embeds: list = embeds
 
     def __getitem__(self, index):
         try:
             image = self.dataset[index][self.image_column]
             descriptions = self.dataset[index][self.caption_column]
+            if self.embeds:
+                embed = self.embeds[index]
         except PIL.UnidentifiedImageError:
             print("Error reading image, most likely corrupt, skipping...")
             image_found = False
+            embed = None
             current_index = 1
             while not image_found:
                 try:
                     image = self.dataset[index + current_index][self.image_column]
                     descriptions = self.dataset[index + current_index][self.caption_column]
+                    if self.embeds:
+                        embed = self.embeds[index + current_index]
                     image_found = True
                 except PIL.UnidentifiedImageError:
+                    embed = None
                     current_index += 1
 
         if self.caption_column is None or descriptions is None:
@@ -171,9 +179,15 @@ class ImageTextDataset(ImageDataset):
         attn_mask = encoded.attention_mask
 
         if self.using_taming:
-            return self.transform(image) - 0.5, input_ids[0], attn_mask[0]
+            if self.embeds:
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+            else:
+                return self.transform(image), input_ids[0], attn_mask[0], []
         else:
-            return self.transform(image), input_ids[0], attn_mask[0]
+            if self.embeds:
+                return self.transform(image), input_ids[0], attn_mask[0], embed
+            else:
+                return self.transform(image), input_ids[0], attn_mask[0], []
 
 
 class URLTextDataset(ImageDataset):
@@ -187,6 +201,7 @@ class URLTextDataset(ImageDataset):
         flip=True,
         center_crop=True,
         using_taming=True,
+        embeds=[],
     ):
         super().__init__(
             dataset,
@@ -198,16 +213,21 @@ class URLTextDataset(ImageDataset):
         )
         self.caption_column: str = caption_column
         self.tokenizer: T5Tokenizer = tokenizer
+        self.embeds: list = embeds
 
     def __getitem__(self, index):
         try:
             image = pImage.open(BytesIO(requests.get(self.dataset[index][self.image_column]).content))
+            if self.embeds:
+                embed = self.embeds[index]
         except ConnectionError:
             try:
                 print("Image request failure, attempting next image")
                 index += 1
 
                 image = pImage.open(BytesIO(requests.get(self.dataset[index][self.image_column]).content))
+                if self.embeds:
+                    embed = self.embeds[index]
             except ConnectionError:
                 raise ConnectionError("Unable to request image from the Dataset")
 
@@ -232,10 +252,17 @@ class URLTextDataset(ImageDataset):
 
         input_ids = encoded.input_ids
         attn_mask = encoded.attention_mask
+
         if self.using_taming:
-            return self.transform(image) - 0.5, input_ids[0], attn_mask[0]
+            if self.embeds:
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+            else:
+                return self.transform(image), input_ids[0], attn_mask[0], []
         else:
-            return self.transform(image), input_ids[0], attn_mask[0]
+            if self.embeds:
+                return self.transform(image), input_ids[0], attn_mask[0], embed
+            else:
+                return self.transform(image), input_ids[0], attn_mask[0], []
 
 
 class LocalTextImageDataset(Dataset):
@@ -249,10 +276,12 @@ class LocalTextImageDataset(Dataset):
         using_taming=False,
         random_crop=False,
         alpha_channel=False,
+        embeds=[],
     ):
         super().__init__()
         self.tokenizer = tokenizer
         self.using_taming = using_taming
+        self.embeds: list = embeds
 
         print("Building dataset...")
 
@@ -305,6 +334,9 @@ class LocalTextImageDataset(Dataset):
         else:
             text = Path(descriptions).read_text(encoding="utf-8").split("\n")
 
+        if self.embeds:
+            embed = self.embeds[index]
+
         # max length from the paper
         encoded = self.tokenizer.batch_encode_plus(
             [str(text)],
@@ -317,9 +349,15 @@ class LocalTextImageDataset(Dataset):
         input_ids = encoded.input_ids
         attn_mask = encoded.attention_mask
         if self.using_taming:
-            return self.transform(image) - 0.5, input_ids[0], attn_mask[0]
+            if self.embeds:
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+            else:
+                return self.transform(image), input_ids[0], attn_mask[0], []
         else:
-            return self.transform(image), input_ids[0], attn_mask[0]
+            if self.embeds:
+                return self.transform(image), input_ids[0], attn_mask[0], embed
+            else:
+                return self.transform(image), input_ids[0], attn_mask[0], []
 
 
 def get_directory_size(path):
