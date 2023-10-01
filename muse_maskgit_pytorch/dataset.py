@@ -46,7 +46,7 @@ class ImageDataset(Dataset):
         stream=False,
         using_taming=False,
         random_crop=False,
-        alpha_channel=True,
+        alpha_channel=False,
     ):
         super().__init__()
         self.dataset = dataset
