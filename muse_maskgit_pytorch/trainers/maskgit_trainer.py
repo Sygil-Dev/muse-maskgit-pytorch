@@ -171,13 +171,12 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                                 input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
                             )
                 else:
-                    img_for_embed = transforms.ToPILImage(imgs)
-
                     model, _, preprocess = self.clip_model
                     text = open_clip.tokenize(text)
 
                     with torch.no_grad():
                         text_embeds = model.encode_text(text)
+                        text_embeds /= text_embeds.norm(dim=-1, keepdim=True)
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)
