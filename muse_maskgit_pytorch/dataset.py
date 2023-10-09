@@ -180,14 +180,14 @@ class ImageTextDataset(ImageDataset):
 
         if self.using_taming:
             if self.embeds:
-                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
         else:
             if self.embeds:
-                return self.transform(image), input_ids[0], attn_mask[0], embed
+                return self.transform(image), input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
 
 
 class URLTextDataset(ImageDataset):
@@ -255,14 +255,14 @@ class URLTextDataset(ImageDataset):
 
         if self.using_taming:
             if self.embeds:
-                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
         else:
             if self.embeds:
-                return self.transform(image), input_ids[0], attn_mask[0], embed
+                return self.transform(image), input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
 
 
 class LocalTextImageDataset(Dataset):
@@ -350,14 +350,14 @@ class LocalTextImageDataset(Dataset):
         attn_mask = encoded.attention_mask
         if self.using_taming:
             if self.embeds:
-                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
         else:
             if self.embeds:
-                return self.transform(image), input_ids[0], attn_mask[0], embed
+                return self.transform(image), input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
 
 
 def get_directory_size(path):

@@ -169,6 +169,7 @@ class Transformer(nn.Module):
         self_cond: bool = False,
         add_mask_id: bool = False,
         cache_path: PathLike = None,
+        use_clip=False,
         **kwargs,
     ):
         super().__init__()
@@ -183,29 +184,35 @@ class Transformer(nn.Module):
         self.transformer_blocks = TransformerBlocks(dim=dim, **kwargs)
         self.norm = LayerNorm(dim)
 
+        self.use_clip = use_clip
+
         self.dim_out = default(dim_out, num_tokens)
         self.to_logits = nn.Linear(dim, self.dim_out, bias=False)
 
         # text conditioning
-        t5, tokenizer = get_model_and_tokenizer(t5_name, cache_path)
-        self.t5: T5EncoderModel = t5
-        self.tokenizer: T5Tokenizer = tokenizer
+        if not use_clip:
+            t5, tokenizer = get_model_and_tokenizer(t5_name, cache_path)
+            self.t5: T5EncoderModel = t5
+            self.tokenizer: T5Tokenizer = tokenizer
 
-        self.t5.eval()
+            self.t5.eval()
 
-        text_embed_dim = get_encoded_dim(t5_name)
+            text_embed_dim = get_encoded_dim(t5_name)
 
-        self.text_embed_proj = (
-            nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()
-        )
+            self.text_embed_proj = (
+                nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()
+            )
 
         # optional self conditioning
         self.self_cond = self_cond
         self.self_cond_to_init_embed = FeedForward(dim)
 
     def encode_text(self, *args, **kwargs):
-        kwargs.update(tokenizer=self.tokenizer, t5=self.t5)
-        return t5_encode_text(*args, **kwargs)
+        if not self.use_clip:
+            kwargs.update(tokenizer=self.tokenizer, t5=self.t5)
+            return t5_encode_text(*args, **kwargs)
+        else:
+            print("Using clip instead, this function shouldn't be accessed")
 
     def forward_with_cond_scale(self, *args, cond_scale=3.0, return_embed=False, **kwargs):
         if cond_scale == 1:

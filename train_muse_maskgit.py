@@ -9,6 +9,7 @@ import accelerate
 import bz2file as bz2
 import datasets
 import diffusers
+import open_clip
 import torch
 import transformers
 from accelerate.utils import ProjectConfiguration
@@ -124,6 +125,12 @@ parser.add_argument("--dim_head", type=int, default=64, help="Attention head dim
 parser.add_argument("--heads", type=int, default=8, help="Attention heads")
 parser.add_argument("--ff_mult", type=int, default=4, help="Feed forward expansion factor")
 parser.add_argument("--t5_name", type=str, default="t5-small", help="Name of your t5 model")
+parser.add_argument(
+    "--use_metaclip",
+    action="store_true",
+    default=False,
+    help="whether to use MetaClip instead of a T5",
+)
 parser.add_argument("--cond_image_size", type=int, default=None, help="Conditional image size.")
 parser.add_argument(
     "--validation_prompt",
@@ -480,6 +487,7 @@ class Arguments:
     heads: int = 8
     ff_mult: int = 4
     t5_name: str = "t5-small"
+    use_metaclip: bool = False
     mixed_precision: str = "no"
     cond_image_size: Optional[int] = None
     validation_prompt: str = "A photo of a dog"
@@ -750,6 +758,7 @@ def main():
         cache_path=args.cache_path,
         flash=flash,
         xformers=xformers,
+        use_clip=args.use_metaclip,
     )
 
     # (2) pass your trained VAE and the base transformer to MaskGit
@@ -987,6 +996,22 @@ def main():
             args.batch_size,
         )
 
+    if args.use_metaclip:
+        if args.mixed_precision == "no":
+            clip_precision = "fp32"
+        else:
+            clip_precision = args.mixed_precision
+
+        clip = open_clip.create_model_and_transforms(
+            "ViT-B-32-quickgelu",
+            pretrained="metaclip/b32_400m.pt",
+            cache_dir=args.cache_path,
+            precision=clip_precision,
+            device=accelerator.device,
+        )
+    else:
+        clip = None
+
     # Create the trainer
     accelerator.wait_for_everyone()
     trainer = MaskGitTrainer(
@@ -1017,6 +1042,7 @@ def main():
         only_save_last_checkpoint=args.only_save_last_checkpoint,
         num_epochs=args.num_epochs,
         args=args,
+        clip=clip,
     )
 
     # Prepare the trainer for distributed training

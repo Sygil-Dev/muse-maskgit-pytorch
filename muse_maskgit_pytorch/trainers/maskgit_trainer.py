@@ -6,7 +6,6 @@ from accelerate import Accelerator
 from diffusers.optimization import SchedulerType
 from ema_pytorch import EMA
 from omegaconf import OmegaConf
-from PIL import Image
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
@@ -24,6 +23,9 @@ except ImportError:
     xm = None
     met = None
 
+import open_clip
+import torchvision.transforms as transforms
+from PIL import Image
 from tqdm import tqdm
 
 
@@ -59,6 +61,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         validation_image_scale: float = 1.0,
         only_save_last_checkpoint=False,
         args=None,
+        clip=None,
     ):
         super().__init__(
             dataloader=dataloader,
@@ -95,6 +98,9 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         self.optim: Optimizer = optimizer
         self.lr_scheduler: SchedulerType = scheduler
+
+        self.use_clip = True if clip is not None else False
+        self.clip_model = clip
 
         self.use_ema = use_ema
         self.validation_prompts: List[str] = validation_prompts
@@ -154,15 +160,24 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         # logs
         for epoch in range(self.current_step // len(self.dl), self.num_epochs):
-            for imgs, input_ids, attn_mask, text_embeds in iter(self.dl):
+            for imgs, input_ids, attn_mask, text_embeds, text in iter(self.dl):
                 train_loss = 0.0
                 steps = int(self.steps.item())
 
-                if not text_embeds:
+                if not self.use_clip:
+                    if not text_embeds:
+                        with torch.no_grad():
+                            text_embeds = t5_encode_text_from_encoded(
+                                input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
+                            )
+                else:
+                    img_for_embed = transforms.ToPILImage(imgs)
+
+                    model, _, preprocess = self.clip_model
+                    text = open_clip.tokenize(text)
+
                     with torch.no_grad():
-                        text_embeds = t5_encode_text_from_encoded(
-                            input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
-                        )
+                        text_embeds = model.encode_text(text)
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)
