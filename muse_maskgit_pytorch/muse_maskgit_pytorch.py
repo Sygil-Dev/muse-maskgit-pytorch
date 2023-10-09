@@ -200,9 +200,12 @@ class Transformer(nn.Module):
 
             text_embed_dim = get_encoded_dim(t5_name)
 
-            self.text_embed_proj = (
-                nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()
-            )
+        else:
+            text_embed_dim = 640
+
+        self.text_embed_proj = (
+            nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()
+        )
 
         # optional self conditioning
         self.self_cond = self_cond

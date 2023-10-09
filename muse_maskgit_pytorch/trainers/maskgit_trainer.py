@@ -93,7 +93,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         # maskgit
         maskgit.vae.requires_grad_(False)
-        maskgit.transformer.t5.requires_grad_(False)
+
         self.model: MaskGit = maskgit
 
         self.optim: Optimizer = optimizer
@@ -101,6 +101,9 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         self.use_clip = True if clip is not None else False
         self.clip_model = clip
+
+        if not self.use_clip:
+            maskgit.transformer.t5.requires_grad_(False)
 
         self.use_ema = use_ema
         self.validation_prompts: List[str] = validation_prompts
@@ -175,8 +178,10 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                     text = open_clip.tokenize(text)
 
                     with torch.no_grad():
-                        text_embeds = model.encode_text(text)
-                        text_embeds /= text_embeds.norm(dim=-1, keepdim=True)
+                        text_embeds = model.encode_text(text.to(self.accelerator.device))
+                        text_embeds = text_embeds.unsqueeze(2).to(self.accelerator.device)
+                        print(text_embeds.shape)
+                        print(imgs.shape)
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)

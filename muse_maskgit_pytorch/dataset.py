@@ -179,8 +179,8 @@ class ImageTextDataset(ImageDataset):
             input_ids = encoded.input_ids
             attn_mask = encoded.attention_mask
         else:
-            input_ids = []
-            attn_mask = []
+            input_ids = [0]
+            attn_mask = [0]
 
         if self.using_taming:
             if self.embeds:
@@ -258,8 +258,8 @@ class URLTextDataset(ImageDataset):
             input_ids = encoded.input_ids
             attn_mask = encoded.attention_mask
         else:
-            input_ids = []
-            attn_mask = []
+            input_ids = [0]
+            attn_mask = [0]
 
         if self.using_taming:
             if self.embeds:
@@ -358,8 +358,8 @@ class LocalTextImageDataset(Dataset):
             input_ids = encoded.input_ids
             attn_mask = encoded.attention_mask
         else:
-            input_ids = []
-            attn_mask = []
+            input_ids = [0]
+            attn_mask = [0]
 
         if self.using_taming:
             if self.embeds:
