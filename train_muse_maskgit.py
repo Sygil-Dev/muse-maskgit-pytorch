@@ -1003,8 +1003,8 @@ def main():
             clip_precision = args.mixed_precision
 
         clip = open_clip.create_model_and_transforms(
-            "ViT-B-32-quickgelu",
-            pretrained="metaclip/b32_400m.pt",
+            "ViT-L-14",
+            pretrained="metaclip/l14_400m.pt",
             cache_dir=args.cache_path,
             precision=clip_precision,
             device=accelerator.device,
