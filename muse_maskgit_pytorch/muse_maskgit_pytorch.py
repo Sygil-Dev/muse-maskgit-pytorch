@@ -185,6 +185,7 @@ class Transformer(nn.Module):
         self.norm = LayerNorm(dim)
 
         self.use_clip = use_clip
+        self.tokenizer = None
 
         self.dim_out = default(dim_out, num_tokens)
         self.to_logits = nn.Linear(dim, self.dim_out, bias=False)

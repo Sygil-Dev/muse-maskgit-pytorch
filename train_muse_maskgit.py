@@ -824,6 +824,9 @@ def main():
     else:
         embeds = []
 
+    if args.use_metaclip:
+        transformer.tokenizer = None
+
     # Create the dataset objects
     with accelerator.main_process_first():
         if args.no_cache and args.train_data_dir:
@@ -1003,8 +1006,8 @@ def main():
             clip_precision = args.mixed_precision
 
         clip = open_clip.create_model_and_transforms(
-            "ViT-L-14",
-            pretrained="metaclip/l14_400m.pt",
+            "convnext_base_w",
+            pretrained="laion2b_s13b_b82k_augreg",
             cache_dir=args.cache_path,
             precision=clip_precision,
             device=accelerator.device,
