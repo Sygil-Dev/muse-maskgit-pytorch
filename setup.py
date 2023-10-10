@@ -50,7 +50,6 @@ setup(
         "xformers>=0.0.20",
         "wandb",
         "bz2file",
-        "open_clip_torch",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

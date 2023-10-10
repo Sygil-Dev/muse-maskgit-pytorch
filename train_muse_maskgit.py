@@ -9,7 +9,6 @@ import accelerate
 import bz2file as bz2
 import datasets
 import diffusers
-import open_clip
 import torch
 import transformers
 from accelerate.utils import ProjectConfiguration
@@ -19,6 +18,7 @@ from omegaconf import OmegaConf
 from rich import inspect
 from torch.optim import Optimizer
 from tqdm import tqdm
+from transformers import AutoTokenizer, CLIPTextModel
 
 import wandb
 from muse_maskgit_pytorch.t5 import t5_encode_text_from_encoded
@@ -126,7 +126,7 @@ parser.add_argument("--heads", type=int, default=8, help="Attention heads")
 parser.add_argument("--ff_mult", type=int, default=4, help="Feed forward expansion factor")
 parser.add_argument("--t5_name", type=str, default="t5-small", help="Name of your t5 model")
 parser.add_argument(
-    "--use_metaclip",
+    "--use_clip",
     action="store_true",
     default=False,
     help="whether to use MetaClip instead of a T5",
@@ -487,7 +487,7 @@ class Arguments:
     heads: int = 8
     ff_mult: int = 4
     t5_name: str = "t5-small"
-    use_metaclip: bool = False
+    use_clip: bool = False
     mixed_precision: str = "no"
     cond_image_size: Optional[int] = None
     validation_prompt: str = "A photo of a dog"
@@ -758,7 +758,7 @@ def main():
         cache_path=args.cache_path,
         flash=flash,
         xformers=xformers,
-        use_clip=args.use_metaclip,
+        use_clip=args.use_clip,
     )
 
     # (2) pass your trained VAE and the base transformer to MaskGit
@@ -824,7 +824,7 @@ def main():
     else:
         embeds = []
 
-    if args.use_metaclip:
+    if args.use_clip:
         transformer.tokenizer = None
 
     # Create the dataset objects
@@ -999,19 +999,13 @@ def main():
             args.batch_size,
         )
 
-    if args.use_metaclip:
-        if args.mixed_precision == "no":
-            clip_precision = "fp32"
-        else:
-            clip_precision = args.mixed_precision
-
-        clip = open_clip.create_model_and_transforms(
-            "convnext_base_w",
-            pretrained="laion2b_s13b_b82k_augreg",
-            cache_dir=args.cache_path,
-            precision=clip_precision,
-            device=accelerator.device,
+    if args.use_clip:
+        model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path).to(
+            accelerator.device
         )
+        tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path)
+
+        clip = (model, tokenizer)
     else:
         clip = None
 

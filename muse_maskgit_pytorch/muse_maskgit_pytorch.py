@@ -201,7 +201,7 @@ class Transformer(nn.Module):
             text_embed_dim = get_encoded_dim(t5_name)
 
         else:
-            text_embed_dim = 640
+            text_embed_dim = 512
 
         self.text_embed_proj = (
             nn.Linear(text_embed_dim, dim, bias=False) if text_embed_dim != dim else nn.Identity()

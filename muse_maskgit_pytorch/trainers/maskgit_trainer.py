@@ -29,6 +29,21 @@ from PIL import Image
 from tqdm import tqdm
 
 
+def divide_string(string, parts):
+    # Determine the length of each substring
+    part_length = len(string) // parts
+
+    # Divide the string into 'parts' number of substrings
+    substrings = [string[i : i + part_length] for i in range(0, len(string), part_length)]
+
+    # If there are any leftover characters, add them to the last substring
+    if len(substrings) > parts:
+        substrings[-2] += substrings[-1]
+        substrings.pop()
+
+    return substrings
+
+
 class MaskGitTrainer(BaseAcceleratedTrainer):
     def __init__(
         self,
@@ -174,14 +189,37 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                                 input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
                             )
                 else:
-                    model, _, preprocess = self.clip_model
-                    text = open_clip.tokenize(text)
+                    clip_model, clip_tokenizer = self.clip_model
+                    inputs = [token[1:-1] for token in clip_tokenizer(text, truncation=True).input_ids]
 
-                    with torch.no_grad():
-                        text_embeds = model.encode_text(text.to(self.accelerator.device))
-                        text_embeds = text_embeds.unsqueeze(2).to(self.accelerator.device)
-                        print(text_embeds.shape)
-                        print(imgs.shape)
+                    inputs = torch.tensor(inputs, device=self.accelerator.device)
+
+                    max_embeddings_multiples = (inputs.shape[1] - 2) // (75 - 2)
+                    if max_embeddings_multiples > 1:
+                        text_embeddings = []
+                        for i in range(max_embeddings_multiples):
+                            # extract the i-th chunk
+                            text_input_chunk = inputs[:, i * (75 - 2) : (i + 1) * (75 - 2) + 2].clone()
+
+                            # cover the head and the tail by the starting and the ending tokens
+                            text_input_chunk[:, 0] = inputs[0, 0]
+                            text_input_chunk[:, -1] = inputs[0, -1]
+                            text_embedding = clip_model(text_input_chunk)[0]
+
+                            if i == 0:
+                                # discard the ending token
+                                text_embedding = text_embedding[:, :-1]
+                            elif i == max_embeddings_multiples - 1:
+                                # discard the starting token
+                                text_embedding = text_embedding[:, 1:]
+                            else:
+                                # discard both starting and ending tokens
+                                text_embedding = text_embedding[:, 1:-1]
+
+                            text_embeddings.append(text_embedding)
+                        text_embeds = torch.concat(text_embeddings, axis=1).to(self.accelerator.device)
+                    else:
+                        text_embeds = clip_model(inputs)[0].to(self.accelerator.device)
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)
