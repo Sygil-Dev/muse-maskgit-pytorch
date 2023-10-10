@@ -6,7 +6,6 @@ from accelerate import Accelerator
 from diffusers.optimization import SchedulerType
 from ema_pytorch import EMA
 from omegaconf import OmegaConf
-from PIL import Image
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
@@ -24,7 +23,25 @@ except ImportError:
     xm = None
     met = None
 
+import open_clip
+import torchvision.transforms as transforms
+from PIL import Image
 from tqdm import tqdm
+
+
+def divide_string(string, parts):
+    # Determine the length of each substring
+    part_length = len(string) // parts
+
+    # Divide the string into 'parts' number of substrings
+    substrings = [string[i : i + part_length] for i in range(0, len(string), part_length)]
+
+    # If there are any leftover characters, add them to the last substring
+    if len(substrings) > parts:
+        substrings[-2] += substrings[-1]
+        substrings.pop()
+
+    return substrings
 
 
 class MaskGitTrainer(BaseAcceleratedTrainer):
@@ -59,6 +76,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         validation_image_scale: float = 1.0,
         only_save_last_checkpoint=False,
         args=None,
+        clip=None,
     ):
         super().__init__(
             dataloader=dataloader,
@@ -90,11 +108,17 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         # maskgit
         maskgit.vae.requires_grad_(False)
-        maskgit.transformer.t5.requires_grad_(False)
+
         self.model: MaskGit = maskgit
 
         self.optim: Optimizer = optimizer
         self.lr_scheduler: SchedulerType = scheduler
+
+        self.use_clip = True if clip is not None else False
+        self.clip_model = clip
+
+        if not self.use_clip:
+            maskgit.transformer.t5.requires_grad_(False)
 
         self.use_ema = use_ema
         self.validation_prompts: List[str] = validation_prompts
@@ -125,14 +149,17 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             self.accelerator.print(
                 f"\nStep: {step} | Logging with prompts: {[' | '.join(validation_prompts)]}"
             )
-
-        images = self.model.generate(
-            validation_prompts,
-            cond_images=cond_image,
-            cond_scale=cond_scale,
-            temperature=temperature,
-            timesteps=timesteps,
-        ).to(self.accelerator.device)
+        images = []
+        for text in validation_prompts:
+            images.append(
+                self.model.generate(
+                    (text,),
+                    cond_images=cond_image,
+                    cond_scale=cond_scale,
+                    temperature=temperature,
+                    timesteps=timesteps,
+                ).to(self.accelerator.device)
+            )
 
         save_dir = self.results_dir.joinpath("MaskGit")
         save_dir.mkdir(exist_ok=True, parents=True)
@@ -154,15 +181,49 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
 
         # logs
         for epoch in range(self.current_step // len(self.dl), self.num_epochs):
-            for imgs, input_ids, attn_mask, text_embeds in iter(self.dl):
+            for imgs, input_ids, attn_mask, text_embeds, text in iter(self.dl):
                 train_loss = 0.0
                 steps = int(self.steps.item())
 
-                if not text_embeds:
-                    with torch.no_grad():
-                        text_embeds = t5_encode_text_from_encoded(
-                            input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
-                        )
+                if not self.use_clip:
+                    if not text_embeds:
+                        with torch.no_grad():
+                            text_embeds = t5_encode_text_from_encoded(
+                                input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
+                            )
+                else:
+                    print(text)
+                    clip_model, clip_tokenizer = self.clip_model
+                    inputs = [token[1:-1] for token in clip_tokenizer(text, truncation=True).input_ids]
+
+                    inputs = torch.tensor(inputs, device=self.accelerator.device)
+
+                    max_embeddings_multiples = (inputs.shape[1] - 2) // (75 - 2)
+                    if max_embeddings_multiples > 1:
+                        text_embeddings = []
+                        for i in range(max_embeddings_multiples):
+                            # extract the i-th chunk
+                            text_input_chunk = inputs[:, i * (75 - 2) : (i + 1) * (75 - 2) + 2].clone()
+
+                            # cover the head and the tail by the starting and the ending tokens
+                            text_input_chunk[:, 0] = inputs[0, 0]
+                            text_input_chunk[:, -1] = inputs[0, -1]
+                            text_embedding = clip_model(text_input_chunk)[0]
+
+                            if i == 0:
+                                # discard the ending token
+                                text_embedding = text_embedding[:, :-1]
+                            elif i == max_embeddings_multiples - 1:
+                                # discard the starting token
+                                text_embedding = text_embedding[:, 1:]
+                            else:
+                                # discard both starting and ending tokens
+                                text_embedding = text_embedding[:, 1:-1]
+
+                            text_embeddings.append(text_embedding)
+                        text_embeds = torch.concat(text_embeddings, axis=1).to(self.accelerator.device)
+                    else:
+                        text_embeds = clip_model(inputs)[0].to(self.accelerator.device)
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
                     loss = self.model(imgs, text_embeds=text_embeds)

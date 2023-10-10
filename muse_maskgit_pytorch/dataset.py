@@ -167,27 +167,31 @@ class ImageTextDataset(ImageDataset):
         else:
             text = descriptions
         # max length from the paper
-        encoded = self.tokenizer.batch_encode_plus(
-            [str(text)],
-            return_tensors="pt",
-            padding="max_length",
-            max_length=MAX_LENGTH,
-            truncation=True,
-        )
+        if self.tokenizer is not None:
+            encoded = self.tokenizer.batch_encode_plus(
+                [str(text)],
+                return_tensors="pt",
+                padding="max_length",
+                max_length=MAX_LENGTH,
+                truncation=True,
+            )
 
-        input_ids = encoded.input_ids
-        attn_mask = encoded.attention_mask
+            input_ids = encoded.input_ids
+            attn_mask = encoded.attention_mask
+        else:
+            input_ids = [0]
+            attn_mask = [0]
 
         if self.using_taming:
             if self.embeds:
-                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
         else:
             if self.embeds:
-                return self.transform(image), input_ids[0], attn_mask[0], embed
+                return self.transform(image), input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
 
 
 class URLTextDataset(ImageDataset):
@@ -242,27 +246,31 @@ class URLTextDataset(ImageDataset):
         else:
             text = descriptions
         # max length from the paper
-        encoded = self.tokenizer.batch_encode_plus(
-            [str(text)],
-            return_tensors="pt",
-            padding="max_length",
-            max_length=MAX_LENGTH,
-            truncation=True,
-        )
+        if self.tokenizer is not None:
+            encoded = self.tokenizer.batch_encode_plus(
+                [str(text)],
+                return_tensors="pt",
+                padding="max_length",
+                max_length=MAX_LENGTH,
+                truncation=True,
+            )
 
-        input_ids = encoded.input_ids
-        attn_mask = encoded.attention_mask
+            input_ids = encoded.input_ids
+            attn_mask = encoded.attention_mask
+        else:
+            input_ids = [0]
+            attn_mask = [0]
 
         if self.using_taming:
             if self.embeds:
-                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
         else:
             if self.embeds:
-                return self.transform(image), input_ids[0], attn_mask[0], embed
+                return self.transform(image), input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
 
 
 class LocalTextImageDataset(Dataset):
@@ -338,26 +346,31 @@ class LocalTextImageDataset(Dataset):
             embed = self.embeds[index]
 
         # max length from the paper
-        encoded = self.tokenizer.batch_encode_plus(
-            [str(text)],
-            return_tensors="pt",
-            padding="max_length",
-            max_length=MAX_LENGTH,
-            truncation=True,
-        )
+        if self.tokenizer is not None:
+            encoded = self.tokenizer.batch_encode_plus(
+                [str(text)],
+                return_tensors="pt",
+                padding="max_length",
+                max_length=MAX_LENGTH,
+                truncation=True,
+            )
 
-        input_ids = encoded.input_ids
-        attn_mask = encoded.attention_mask
+            input_ids = encoded.input_ids
+            attn_mask = encoded.attention_mask
+        else:
+            input_ids = [0]
+            attn_mask = [0]
+
         if self.using_taming:
             if self.embeds:
-                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed
+                return self.transform(image) - 0.5, input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
         else:
             if self.embeds:
-                return self.transform(image), input_ids[0], attn_mask[0], embed
+                return self.transform(image), input_ids[0], attn_mask[0], embed, text
             else:
-                return self.transform(image), input_ids[0], attn_mask[0], []
+                return self.transform(image), input_ids[0], attn_mask[0], [], text
 
 
 def get_directory_size(path):

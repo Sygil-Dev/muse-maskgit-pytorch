@@ -18,6 +18,7 @@ from omegaconf import OmegaConf
 from rich import inspect
 from torch.optim import Optimizer
 from tqdm import tqdm
+from transformers import AutoTokenizer, CLIPTextModel
 
 import wandb
 from muse_maskgit_pytorch.t5 import t5_encode_text_from_encoded
@@ -124,6 +125,12 @@ parser.add_argument("--dim_head", type=int, default=64, help="Attention head dim
 parser.add_argument("--heads", type=int, default=8, help="Attention heads")
 parser.add_argument("--ff_mult", type=int, default=4, help="Feed forward expansion factor")
 parser.add_argument("--t5_name", type=str, default="t5-small", help="Name of your t5 model")
+parser.add_argument(
+    "--use_clip",
+    action="store_true",
+    default=False,
+    help="whether to use MetaClip instead of a T5",
+)
 parser.add_argument("--cond_image_size", type=int, default=None, help="Conditional image size.")
 parser.add_argument(
     "--validation_prompt",
@@ -480,6 +487,7 @@ class Arguments:
     heads: int = 8
     ff_mult: int = 4
     t5_name: str = "t5-small"
+    use_clip: bool = False
     mixed_precision: str = "no"
     cond_image_size: Optional[int] = None
     validation_prompt: str = "A photo of a dog"
@@ -750,12 +758,27 @@ def main():
         cache_path=args.cache_path,
         flash=flash,
         xformers=xformers,
+        use_clip=args.use_clip,
     )
+
+    if args.use_clip:
+        model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path).to(
+            accelerator.device
+        )
+        tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path)
+
+        clip = (model, tokenizer)
+    else:
+        model = None
+        tokenizer = None
+        clip = None
 
     # (2) pass your trained VAE and the base transformer to MaskGit
     maskgit = MaskGit(
         vae=vae,  # vqgan vae
         transformer=transformer,  # transformer
+        clip=model,
+        clip_tokenizer=tokenizer,
         accelerator=accelerator,  # accelerator
         image_size=args.image_size,  # image size
         cond_drop_prob=args.cond_drop_prob,  # conditional dropout, for classifier free guidance
@@ -814,6 +837,9 @@ def main():
         embeds = decompress_pickle(args.precompute_path)
     else:
         embeds = []
+
+    if args.use_clip:
+        transformer.tokenizer = None
 
     # Create the dataset objects
     with accelerator.main_process_first():
@@ -1017,6 +1043,7 @@ def main():
         only_save_last_checkpoint=args.only_save_last_checkpoint,
         num_epochs=args.num_epochs,
         args=args,
+        clip=clip,
     )
 
     # Prepare the trainer for distributed training
