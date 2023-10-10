@@ -761,10 +761,24 @@ def main():
         use_clip=args.use_clip,
     )
 
+    if args.use_clip:
+        model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path).to(
+            accelerator.device
+        )
+        tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path)
+
+        clip = (model, tokenizer)
+    else:
+        model = None
+        tokenizer = None
+        clip = None
+
     # (2) pass your trained VAE and the base transformer to MaskGit
     maskgit = MaskGit(
         vae=vae,  # vqgan vae
         transformer=transformer,  # transformer
+        clip=model,
+        clip_tokenizer=tokenizer,
         accelerator=accelerator,  # accelerator
         image_size=args.image_size,  # image size
         cond_drop_prob=args.cond_drop_prob,  # conditional dropout, for classifier free guidance
@@ -998,16 +1012,6 @@ def main():
             args.seed,
             args.batch_size,
         )
-
-    if args.use_clip:
-        model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path).to(
-            accelerator.device
-        )
-        tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32", cache_dir=args.cache_path)
-
-        clip = (model, tokenizer)
-    else:
-        clip = None
 
     # Create the trainer
     accelerator.wait_for_everyone()

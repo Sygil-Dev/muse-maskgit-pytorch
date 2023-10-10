@@ -149,14 +149,17 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
             self.accelerator.print(
                 f"\nStep: {step} | Logging with prompts: {[' | '.join(validation_prompts)]}"
             )
-
-        images = self.model.generate(
-            validation_prompts,
-            cond_images=cond_image,
-            cond_scale=cond_scale,
-            temperature=temperature,
-            timesteps=timesteps,
-        ).to(self.accelerator.device)
+        images = []
+        for text in validation_prompts:
+            images.append(
+                self.model.generate(
+                    (text,),
+                    cond_images=cond_image,
+                    cond_scale=cond_scale,
+                    temperature=temperature,
+                    timesteps=timesteps,
+                ).to(self.accelerator.device)
+            )
 
         save_dir = self.results_dir.joinpath("MaskGit")
         save_dir.mkdir(exist_ok=True, parents=True)
@@ -189,6 +192,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                                 input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
                             )
                 else:
+                    print(text)
                     clip_model, clip_tokenizer = self.clip_model
                     inputs = [token[1:-1] for token in clip_tokenizer(text, truncation=True).input_ids]
 
