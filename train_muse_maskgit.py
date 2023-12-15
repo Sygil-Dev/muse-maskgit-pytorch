@@ -12,7 +12,7 @@ import diffusers
 import torch
 import transformers
 from accelerate.utils import ProjectConfiguration
-from datasets import load_dataset
+from datasets import concatenate_datasets, load_dataset
 from diffusers.optimization import SchedulerType, get_scheduler
 from omegaconf import OmegaConf
 from rich import inspect
@@ -237,7 +237,8 @@ parser.add_argument(
     "--dataset_name",
     type=str,
     default=None,
-    help="ID of HuggingFace dataset to use (cannot be used with --train_data_dir)",
+    help="ID of HuggingFace dataset to use (cannot be used with --train_data_dir, use multiple by splitting with '|', "
+    "they must have the same image column and text column)",
 )
 parser.add_argument(
     "--hf_split_name",
@@ -612,18 +613,49 @@ def main():
                     save_path=args.dataset_save_path,
                 )
         elif args.dataset_name is not None:
-            dataset = load_dataset(
-                args.dataset_name,
-                streaming=args.streaming,
-                cache_dir=args.cache_path,
-                save_infos=True,
-                split="train",
-            )
-            if args.streaming:
-                if args.cache_path:
-                    dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[args.hf_split_name]
-                else:
-                    dataset = load_dataset(args.dataset_name)[args.hf_split_name]
+            if "|" in args.dataset_name:
+                loaded_datasets = []
+                for name in args.dataset_name.split("|"):
+                    accelerator.print(f"Loading {name}")
+                    data_to_add = load_dataset(
+                        name,
+                        streaming=args.streaming,
+                        cache_dir=args.cache_path,
+                        save_infos=True,
+                        split="train",
+                    )
+
+                    data_to_add.remove_columns(
+                        [
+                            col
+                            for col in data_to_add.column_names
+                            if col != args.caption_column or col != args.image_column
+                        ]
+                    )
+
+                    loaded_datasets.append(data_to_add)
+
+                try:
+                    dataset = concatenate_datasets(loaded_datasets)
+                except ValueError:
+                    raise UserWarning("Failed concatenating dataset... Make sure they use the same columns!")
+
+            else:
+                dataset = load_dataset(
+                    args.dataset_name,
+                    streaming=args.streaming,
+                    cache_dir=args.cache_path,
+                    save_infos=True,
+                    split="train",
+                )
+
+                if args.streaming:
+                    if args.cache_path:
+                        dataset = load_dataset(args.dataset_name, cache_dir=args.cache_path)[
+                            args.hf_split_name
+                        ]
+                    else:
+                        dataset = load_dataset(args.dataset_name)[args.hf_split_name]
         else:
             raise ValueError("You must pass either train_data_dir or dataset_name (but not both)")
 
