@@ -202,7 +202,7 @@ def vae_folder_validation(accelerator, vae, dataset, args=None, checkpoint_name=
                 now = datetime.now().strftime("%m-%d-%Y_%H-%M-%S")
                 hash = hashlib.sha1(input_image.tobytes()).hexdigest()
 
-                filename = f"{hash}_{now}{'-' + epoch if epoch else ''}-{os.path.basename(checkpoint_name)}.png"
+                filename = f"{str(hash)}_{str(now)}{'-'}{'E' + str(epoch) if epoch is not None else ''}-{str(os.path.basename(checkpoint_name))}.png"
                 grid_image.save(f"{output_dir}/{filename}", format="PNG")
 
                 if not save_originals:

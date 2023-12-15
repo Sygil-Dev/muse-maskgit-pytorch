@@ -58,6 +58,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         clear_previous_experiments=False,
         validation_image_scale: float = 1.0,
         only_save_last_checkpoint=False,
+        t5_offloading=False,
         args=None,
     ):
         super().__init__(
@@ -87,6 +88,8 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
         # arguments used for the training script,
         # we are going to use them later to save them to a config file.
         self.args = args
+
+        self.t5_offloading = t5_offloading
 
         # maskgit
         maskgit.vae.requires_grad_(False)
@@ -161,7 +164,7 @@ class MaskGitTrainer(BaseAcceleratedTrainer):
                 if not text_embeds:
                     with torch.no_grad():
                         text_embeds = t5_encode_text_from_encoded(
-                            input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device
+                            input_ids, attn_mask, self.model.transformer.t5, self.accelerator.device if not self.t5_offloading else 'cpu'
                         )
 
                 with self.accelerator.accumulate(self.model), self.accelerator.autocast():
