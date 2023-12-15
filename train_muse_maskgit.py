@@ -453,6 +453,12 @@ parser.add_argument(
     default="",
     help="The path to save or load embeds",
 )
+parser.add_argument(
+    "--t5_offloading",
+    action="store_true",
+    default=False,
+    help="Wheter to offload the t5 model to cpu instad of loading it on GPU. Should help with loading bigger models but will affect performance.",
+)
 
 
 @dataclass
@@ -528,6 +534,7 @@ class Arguments:
     attention_type: str = "flash"
     precompute: bool = False
     precompute_path: str = ""
+    t5_offloading = False
 
 
 def main():
@@ -984,6 +991,7 @@ def main():
         validation_image_scale=args.validation_image_scale,
         only_save_last_checkpoint=args.only_save_last_checkpoint,
         num_epochs=args.num_epochs,
+        t5_offloading=args.t5_offloading,
         args=args,
     )
 
